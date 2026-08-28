@@ -5,6 +5,7 @@ stage owns what happens to each frame after this).
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from catalogue.models import Camera
 from config.settings import Settings
@@ -25,12 +26,14 @@ class CameraStreamWorker:
         camera: Camera,
         settings: Settings,
         on_frame,           # async callable: (DecodedFrame) -> None
+        executor: ThreadPoolExecutor,  # dedicated pool, shared across all camera workers
         on_discontinuity=None,  # callable: (camera_id: str) -> None, sync ok
     ):
         self.camera = camera
         self.settings = settings
         self.on_frame = on_frame
         self.on_discontinuity = on_discontinuity
+        self._executor = executor
         self._decoder = StreamDecoder(
             camera_id=camera.camera_id,
             organization_id=camera.organization_id,
@@ -62,9 +65,10 @@ class CameraStreamWorker:
 
     async def _run(self) -> None:
         backoff_seconds = self.settings.reconnect_initial_backoff_seconds
+        loop = asyncio.get_running_loop()
 
         while self._running:
-            opened = await asyncio.to_thread(self._decoder.open)
+            opened = await loop.run_in_executor(self._executor, self._decoder.open)
 
             if not opened:
                 logger.warning(
@@ -101,8 +105,10 @@ class CameraStreamWorker:
     async def _read_until_disconnected(self) -> None:
         """Read frames until the decoder reports a failed read."""
 
+        loop = asyncio.get_running_loop()
+
         while self._running:
-            frame = await asyncio.to_thread(self._decoder.read_frame)
+            frame = await loop.run_in_executor(self._executor, self._decoder.read_frame)
 
             if frame is None:
                 # Failed read -- real disconnect, not a decode warning.
@@ -151,6 +157,16 @@ class StreamManager:
         self.on_discontinuity = on_discontinuity
         self._workers: dict[str, CameraStreamWorker] = {}
 
+        # Dedicated pool, sized to guarantee every possible active camera
+        # always has a thread available for its blocking cap.read() call.
+        # Deliberately NOT using asyncio.to_thread's shared default pool
+        # (min(32, cpu_count()+4)) -- that size has nothing to do with
+        # camera count and can silently queue reads once streams > pool size.
+        self._executor = ThreadPoolExecutor(
+            max_workers=settings.max_active_streams,
+            thread_name_prefix="rtsp-reader",
+        )
+
     async def sync_cameras(self, live_cameras: list[Camera]) -> None:
         """Reconcile active workers against the latest live camera list."""
 
@@ -177,7 +193,7 @@ class StreamManager:
                 continue
 
             worker = CameraStreamWorker(
-                camera, self.settings, self.on_frame, self.on_discontinuity
+                camera, self.settings, self.on_frame, self._executor, self.on_discontinuity
             )
             worker.start()
             self._workers[camera_id] = worker
@@ -189,6 +205,7 @@ class StreamManager:
         for camera_id, worker in list(self._workers.items()):
             await worker.stop()
         self._workers.clear()
+        self._executor.shutdown(wait=True)
 
     def active_camera_ids(self) -> list[str]:
         return list(self._workers.keys())
