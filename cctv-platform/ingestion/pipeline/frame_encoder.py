@@ -16,7 +16,7 @@ _DEFAULT_JPEG_QUALITY = 85
 
 
 class EncodedFrame:
-    """A frame encoded to JPEG bytes, ready for multipart dispatch."""
+    """A frame encoded to JPEG bytes, ready for dispatch."""
 
     def __init__(
         self,
@@ -26,6 +26,7 @@ class EncodedFrame:
         width: int,
         height: int,
         jpeg_bytes: bytes,
+        format: str = "jpeg",
     ):
         self.camera_id = camera_id
         self.organization_id = organization_id
@@ -33,6 +34,7 @@ class EncodedFrame:
         self.width = width
         self.height = height
         self.jpeg_bytes = jpeg_bytes
+        self.format = format
 
 
 def encode_frame(frame: DecodedFrame, quality: int = _DEFAULT_JPEG_QUALITY) -> EncodedFrame | None:
