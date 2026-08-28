@@ -13,13 +13,13 @@ CatalogClient (poll /api/ingest)
 import asyncio
 import logging
 import signal
-
+import uvicorn
+from app import app
 from dotenv import load_dotenv
 
 # Must run before config.settings is imported anywhere, or env values
 # loaded here won't take effect (Settings reads os.environ at import time).
 load_dotenv()
-
 from catalogue.catalog_client import CatalogClient
 from catalogue.gls_sync import GLSSync
 from catalogue.models import Camera
@@ -191,16 +191,33 @@ class Pipeline:
 
 
 async def main() -> None:
+    settings = get_settings()
     pipeline = Pipeline()
     stop_event = asyncio.Event()
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop_event.set)
 
+    # The pipeline's CatalogClient polls http://<server_host>:<server_port>/api/ingest,
+    # so the FastAPI app that serves that route has to be running in this same
+    # process -- otherwise every catalogue poll fails and no cameras ever load.
+    config = uvicorn.Config(
+        app,
+        host=settings.server_host,
+        port=settings.server_port,
+        log_level=settings.log_level.lower(),
+    )
+    server = uvicorn.Server(config)
+    server_task = asyncio.create_task(server.serve())
+
     await pipeline.start()
     await stop_event.wait()
+
     await pipeline.stop()
+
+    server.should_exit = True
+    await server_task
 
 
 if __name__ == "__main__":
