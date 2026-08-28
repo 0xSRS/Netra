@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI
 from pydantic import BaseModel
-from workers.worker_pool import submit_frame, BatchTracker
+from workers.worker_pool import submit_frame, BatchTracker #type:ignore
 
 app = FastAPI()
 

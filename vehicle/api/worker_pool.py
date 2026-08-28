@@ -31,8 +31,8 @@ def submit_frame(img, camera_id, organization_id, pts_ms, tracker: BatchTracker)
 def _worker_loop():
     from anpr.detect_plate import detect_plates
     from anpr.ocr_plate import read_plate
-    from helmet.detect_helmet import detect_helmet
-    from storage.store_event import send_event
+    from helmet.detect_helmet import detect_helmet #type:ignore
+    from storage.store_event import send_event #type:ignore
 
     while True:
         img, camera_id, organization_id, pts_ms, tracker = _frame_queue.get()
