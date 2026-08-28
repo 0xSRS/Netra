@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from catalogue.catalog_client import CatalogClient
+from catalogue.gls_sync import GLSSync
 from catalogue.models import Camera
 from config.settings import get_settings
 from pipeline.batcher import Batcher
@@ -68,6 +69,14 @@ class Pipeline:
             vehicle_url=self.settings.vehicle_ai_url,
             face_url=self.settings.face_ai_url,
             queue_size=self.settings.dispatch_queue_max_size,
+        )
+
+        # GLS/Registry is a separate data flow from AI dispatch (metadata
+        # only, no frames) and runs on its own cadence, independent of the
+        # catalogue-refresh interval that drives stream reconciliation.
+        self.gls_sync = GLSSync(
+            gls_url=self.settings.gls_registry_url,
+            timeout_seconds=self.settings.catalogue_timeout_seconds,
         )
 
         self._tasks: list[asyncio.Task] = []
@@ -132,6 +141,24 @@ class Pipeline:
 
         await self.batcher.run(on_batch)
 
+    async def _push_gls_loop(self) -> None:
+        """Push camera metadata to GLS/Registry on its own timer.
+
+        Uses the *full* catalogue (fetch_catalogue), not just the live
+        subset used for stream reconciliation -- GLS needs to know about
+        offline cameras too so it can render them as offline on the map,
+        not just drop them silently.
+        """
+
+        try:
+            while True:
+                cameras = await self.catalog_client.fetch_catalogue()
+                await self.gls_sync.push(cameras)
+                await asyncio.sleep(self.settings.gls_push_interval_seconds)
+        except asyncio.CancelledError:
+            logger.info("GLS push loop stopped")
+            raise
+
     async def start(self) -> None:
         self._running = True
 
@@ -142,6 +169,7 @@ class Pipeline:
                 self.catalog_client.start_periodic_refresh(self._on_catalogue_update)
             ),
             asyncio.create_task(self._dispatch_batches()),
+            asyncio.create_task(self._push_gls_loop()),
         ]
 
         logger.info("Pipeline started")
@@ -156,6 +184,7 @@ class Pipeline:
 
         await self.stream_manager.stop_all()
         await self.dispatcher.stop()
+        await self.gls_sync.close()
         await self.catalog_client.close()
 
         logger.info("Pipeline stopped cleanly")

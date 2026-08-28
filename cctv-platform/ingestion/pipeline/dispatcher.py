@@ -168,12 +168,21 @@ class AIDispatcher:
         self.running = False
 
         tasks = [
-            self.vehicle_worker_task,
-            self.face_worker_task
+            task for task in (
+                self.vehicle_worker_task,
+                self.face_worker_task,
+            )
+            if task is not None
         ]
 
         for task in tasks:
-            if task is not None:
-                task.cancel()
+            task.cancel()
+
+        # Await cancellation so each worker's "async with httpx.AsyncClient"
+        # actually finishes closing its client before stop() returns --
+        # otherwise cleanup races in the background after we've already
+        # moved on (stray "Task was destroyed but it is pending" warnings).
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         print("[DISPATCHER] Stopped")
