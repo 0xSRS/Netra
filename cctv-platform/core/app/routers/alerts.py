@@ -3,13 +3,13 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 import json
 
-import models
-import schemas
-from database import get_db, SessionLocal
+from app.database import get_db, SessionLocal
+from app import models, schemas
 
-router = APIRouter(prefix="/alerts", tags=["alerts"])
+router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 
+# ---------------- WebSocket Connection Manager ----------------
 class ConnectionManager:
     def __init__(self):
         self.active: List[WebSocket] = []
@@ -33,12 +33,12 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+# ---------------- Alert creation helper ----------------
 def check_watchlist_and_create_alert(
     source_type: str, camera_id: str, value: str, organization_id: Optional[str] = None
 ) -> Optional[models.Alert]:
-    """Called by vehicle_events.py / person_events.py whenever a new
-    detection comes in. Checks the value (plate number or person label)
-    against the watchlist; if it matches, creates an Alert row."""
+    """Called by vehicle_events.py / person_events.py whenever a new detection comes in.
+    Checks the value (plate number or person label) against the watchlist; if it matches, creates an Alert row."""
     db = SessionLocal()
     try:
         entry_type = "vehicle" if source_type == "vehicle" else "person"
@@ -64,30 +64,8 @@ def check_watchlist_and_create_alert(
         db.close()
 
 
+# ---------------- REST Endpoints ----------------
 @router.get("", response_model=List[schemas.AlertOut])
 def list_alerts(db: Session = Depends(get_db)):
-    return db.query(models.Alert).order_by(models.Alert.timestamp.desc()).limit(200).all()
-
-
-@router.post("/watchlist", response_model=schemas.WatchlistOut)
-def add_watchlist_entry(entry: schemas.WatchlistCreate, db: Session = Depends(get_db)):
-    db_entry = models.Watchlist(**entry.dict())
-    db.add(db_entry)
-    db.commit()
-    db.refresh(db_entry)
-    return db_entry
-
-
-@router.get("/watchlist", response_model=List[schemas.WatchlistOut])
-def list_watchlist(db: Session = Depends(get_db)):
-    return db.query(models.Watchlist).all()
-
-
-@router.websocket("/ws")
-async def alerts_websocket(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+    """Fetch latest alerts (active + historical)."""
+    return db.query(models.Alert).order_by(models.Alert.timestamp.desc()).all()

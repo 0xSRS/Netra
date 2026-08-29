@@ -1,22 +1,35 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import engine, SessionLocal
-import models
-import auth as auth_utils
-from routers import cameras, auth, admin, vehicle_events, person_events, alerts, vehicle_frames, person_frames
+from app.database import engine, SessionLocal, Base
+import app.models as models
+import app.auth as auth_utils
+from app.routers import (
+    cameras,
+    auth,
+    admin,
+    vehicle_events,
+    person_events,
+    alerts,
+    vehicle_frames,
+    person_frames,
+)
 
-models.Base.metadata.create_all(bind=engine)
+# Auto-create all tables in Postgres/PostGIS if they do not exist
+Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="CCTV Integrated Video Management & Analytics Platform")
+app = FastAPI(title="Netra CCTV Core Backend", version="1.0.0")
 
+# Enable CORS (open for dev; tighten before production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # fine for hackathon local dev; tighten before going further
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Register Routers
 app.include_router(auth.router)
 app.include_router(cameras.router)
 app.include_router(admin.router)
@@ -29,9 +42,7 @@ app.include_router(person_frames.router)
 
 @app.on_event("startup")
 def bootstrap_default_admin():
-    """There's no public registration endpoint (only an admin can create
-    users), so the very first admin account has to come from somewhere.
-    If the users table is empty, create a default admin here once."""
+    """Bootstrap a default admin if no users exist."""
     db = SessionLocal()
     try:
         if db.query(models.User).count() == 0:
@@ -44,15 +55,24 @@ def bootstrap_default_admin():
             db.add(default_admin)
             db.commit()
             print(
-                "\n*** No users existed — created default admin account: "
-                "username='admin', password='admin123'. Log in and create "
-                "real accounts via the Admin panel, then consider changing "
-                "or removing this one. ***\n"
+                "\n*** Created default admin account: "
+                "username='admin', password='admin123'. "
+                "Change/remove this after initial setup. ***\n"
             )
     finally:
         db.close()
 
 
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "service": "core_backend"}
+
+
 @app.get("/")
 def root():
     return {"status": "CCTV Platform API running", "docs": "/docs"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
