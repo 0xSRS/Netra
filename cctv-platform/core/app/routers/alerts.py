@@ -65,7 +65,7 @@ def check_watchlist_and_create_alert(
 
 
 # ---------------- REST Endpoints ----------------
-@router.get("", response_model=List[schemas.AlertOut])
+@router.get("", response_model=List[schemas.UserOut])
 def list_alerts(db: Session = Depends(get_db)):
     """Fetch latest alerts (active + historical)."""
     return db.query(models.Alert).order_by(models.Alert.timestamp.desc()).all()
