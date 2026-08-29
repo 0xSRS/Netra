@@ -1,0 +1,6 @@
+.venv
+venv
+test_send_batch.py
+__pycache__/
+.env
+node_modules/
