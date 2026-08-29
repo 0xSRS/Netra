@@ -4,6 +4,97 @@ from uuid import UUID
 from pydantic import BaseModel
 
 # ============================================================
+# CAMERA SCHEMAS
+# ============================================================
+class LocationIn(BaseModel):
+    latitude: float
+    longitude: float
+    address: Optional[str] = None
+
+
+class PropertiesIn(BaseModel):
+    codec: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+class StreamIn(BaseModel):
+    rtsp: Optional[str] = None
+    webrtc: Optional[str] = None   # preferred protocol
+    hls: Optional[str] = None
+
+
+class CameraCreate(BaseModel):
+    camera_id: str
+    organization_id: str
+    organization_name: Optional[str] = None
+    name: str
+    status: str = "online"
+    location: LocationIn
+    camera_type: str = "IP"
+    properties: Optional[PropertiesIn] = None
+    stream: Optional[StreamIn] = None
+
+    department: Optional[str] = None
+    district: Optional[str] = None
+    vms_vendor: Optional[str] = None
+    storage_type: str = "cloud"
+    retention_days: int = 7
+
+
+class CameraOut(CameraCreate):
+    install_date: datetime
+    last_health_check: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CamerasBulkImport(BaseModel):
+    cameras: List[CameraCreate]
+
+
+# ============================================================
+# AUTH + WATCHLIST
+# ============================================================
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    department: Optional[str] = None
+    role: str = "viewer"
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    department: Optional[str]
+    role: str
+
+    class Config:
+        from_attributes = True
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class WatchlistCreate(BaseModel):
+    entry_type: str   # "vehicle" or "person"
+    value: str
+    reason: str
+    added_by: Optional[str] = None
+
+
+class WatchlistOut(WatchlistCreate):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
 # VEHICLE SCHEMAS
 # ============================================================
 class VehicleEventCreate(BaseModel):
@@ -16,6 +107,8 @@ class VehicleEventCreate(BaseModel):
     speed_kmph: Optional[float] = None
     speed_limit_kmph: Optional[float] = None
     snapshot_url: Optional[str] = None
+    helmet_status: Optional[str] = None
+
 
 class VehicleEventResponse(VehicleEventCreate):
     id: int
@@ -24,12 +117,14 @@ class VehicleEventResponse(VehicleEventCreate):
     class Config:
         from_attributes = True
 
+
 class WantedVehicleCreate(BaseModel):
     plate_number: str
     fir_number: Optional[str] = None
     crime_description: str
     severity: Optional[str] = "HIGH"
     issuing_authority: Optional[str] = "Gujarat Police"
+
 
 class WantedVehicleResponse(WantedVehicleCreate):
     id: int
@@ -38,6 +133,7 @@ class WantedVehicleResponse(WantedVehicleCreate):
     class Config:
         from_attributes = True
 
+
 class MissingVehicleCreate(BaseModel):
     plate_number: str
     owner_name: Optional[str] = None
@@ -45,12 +141,14 @@ class MissingVehicleCreate(BaseModel):
     report_number: Optional[str] = None
     contact_number: Optional[str] = None
 
+
 class MissingVehicleResponse(MissingVehicleCreate):
     id: int
     reported_at: datetime
 
     class Config:
         from_attributes = True
+
 
 class AlertResponse(BaseModel):
     id: int
@@ -79,12 +177,14 @@ class PersonMissingCreate(BaseModel):
     reported_by: Optional[str] = None
     status: Optional[str] = "active"
 
+
 class PersonMissingResponse(PersonMissingCreate):
     person_id: UUID
     created_at: datetime
 
     class Config:
         from_attributes = True
+
 
 class PersonWantedCreate(BaseModel):
     name: str
@@ -95,12 +195,14 @@ class PersonWantedCreate(BaseModel):
     reported_by: Optional[str] = None
     status: Optional[str] = "active"
 
+
 class PersonWantedResponse(PersonWantedCreate):
     person_id: UUID
     created_at: datetime
 
     class Config:
         from_attributes = True
+
 
 class PersonEventCreate(BaseModel):
     camera_id: str
@@ -112,12 +214,14 @@ class PersonEventCreate(BaseModel):
     matched_missing_id: Optional[UUID] = None
     matched_wanted_id: Optional[UUID] = None
 
+
 class PersonEventResponse(PersonEventCreate):
     event_id: UUID
     detected_at: datetime
 
     class Config:
         from_attributes = True
+
 
 class PersonAlertResponse(BaseModel):
     alert_id: UUID
@@ -132,3 +236,24 @@ class PersonAlertResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================
+# FRAME BATCH (AI PIPELINE INPUT)
+# ============================================================
+class FrameIn(BaseModel):
+    camera_id: str
+    organization_id: str
+    pts_ms: int
+    width: int
+    height: int
+    format: str = "jpeg"
+    frame: str   # base64-encoded JPEG
+
+
+class FrameBatchIn(BaseModel):
+    frames: List[FrameIn]
+
+
+class FrameBatchStatus(BaseModel):
+    status: str = "Completed"

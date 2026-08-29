@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, Float, Numeric, 
+    Column, Integer, BigInteger, String, Float, Numeric,
     Boolean, DateTime, Text, ForeignKey, CheckConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -15,18 +15,68 @@ from .database import Base
 class Camera(Base):
     __tablename__ = "cameras"
 
-    camera_id = Column(String(50), primary_key=True, index=True)
-    organization_id = Column(String(50), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(String(50), unique=True, index=True)
+    organization_id = Column(String(50), index=True)
+    organization_name = Column(String, nullable=True)
     name = Column(String(100))
-    location_name = Column(String(255))
+    status = Column(String, default="online")  # online/offline/maintenance
+
+    # location
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    codec = Column(String(20))
-    live = Column(Boolean, default=True)
-    stream_url = Column(Text)
+    address = Column(String(255), nullable=True)
+    location_name = Column(String(255), nullable=True)
+
+    camera_type = Column(String, default="IP")  # IP/PTZ/analog
+
+    # properties
+    codec = Column(String(20), nullable=True)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+
+    # stream URLs
+    rtsp_url = Column(Text, nullable=True)
+    webrtc_url = Column(Text, nullable=True)
+    hls_url = Column(Text, nullable=True)
+
+    # extra fields
+    department = Column(String, index=True, nullable=True)
+    district = Column(String, index=True, nullable=True)
+    vms_vendor = Column(String, nullable=True)
+    storage_type = Column(String, default="cloud")
+    retention_days = Column(Integer, default=7)
+
     created_at = Column(DateTime, default=datetime.utcnow)
+    install_date = Column(DateTime, default=datetime.utcnow)
+    last_health_check = Column(DateTime, default=datetime.utcnow)
 
     vehicle_events = relationship("VehicleEvent", back_populates="camera", cascade="all, delete-orphan")
+
+
+# ============================================================
+# USER + WATCHLIST
+# ============================================================
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    department = Column(String, nullable=True)
+    role = Column(String, default="viewer")   # admin/operator/viewer
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Watchlist(Base):
+    __tablename__ = "watchlist"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entry_type = Column(String, index=True)   # "vehicle" or "person"
+    value = Column(String, index=True)        # plate number or person label
+    reason = Column(String)
+    added_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ============================================================
@@ -41,9 +91,10 @@ class VehicleEvent(Base):
     event_type = Column(String(20), nullable=False, default="anpr")
     plate_number = Column(String(20), index=True, nullable=True)
     confidence = Column(Numeric(4, 3), nullable=False)
-    pts_ms = Column(Float, nullable=False)
+    pts_ms = Column(Float, nullable=True)
     speed_kmph = Column(Numeric(5, 2), nullable=True)
     speed_limit_kmph = Column(Numeric(5, 2), nullable=True)
+    helmet_status = Column(String, nullable=True)   # worn/not_worn/None
     snapshot_url = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
@@ -75,16 +126,19 @@ class MissingVehicle(Base):
     reported_at = Column(DateTime, default=datetime.utcnow)
 
 
+# ============================================================
+# ALERTS
+# ============================================================
 class Alert(Base):
     __tablename__ = "alerts"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     event_id = Column(BigInteger, ForeignKey("vehicle_events.id", ondelete="CASCADE"), nullable=False)
-    plate_number = Column(String(20), nullable=False, index=True)
+    plate_number = Column(String(20), nullable=True, index=True)
     camera_id = Column(String(50), nullable=False)
     alert_type = Column(String(20), nullable=False)
     severity = Column(String(20), nullable=False)
-    details = Column(Text, nullable=False)
+    details = Column(Text, nullable=True)
     status = Column(String(20), default="ACTIVE", index=True)
     triggered_at = Column(DateTime, default=datetime.utcnow)
 
@@ -163,7 +217,3 @@ class PersonAlert(Base):
     similarity_score = Column(Float, nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     status = Column(Text, default="pending", index=True)
-
-    event = relationship("PersonEvent", back_populates="alerts")
-    missing_person = relationship("PersonMissing", back_populates="alerts")
-    wanted_person = relationship("PersonWanted", back_populates="alerts")
