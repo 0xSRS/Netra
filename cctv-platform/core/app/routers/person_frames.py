@@ -1,8 +1,8 @@
 import base64
 from fastapi import APIRouter
 
-import schemas
-from frame_worker import FrameWorkerPool
+import app.schemas as schemas
+from app.frame_worker import FrameWorkerPool
 
 router = APIRouter(prefix="/person-frames", tags=["face-ai"])
 

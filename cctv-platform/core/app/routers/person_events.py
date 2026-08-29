@@ -2,15 +2,15 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-import models
-import schemas
-from database import get_db
-from routers.alerts import check_watchlist_and_create_alert
+import app.models as models
+import app.schemas as schemas
+from app.database import get_db
+from app.routers.alerts import check_watchlist_and_create_alert
 
 router = APIRouter(prefix="/person-events", tags=["person-events"])
 
 
-@router.post("", response_model=schemas.PersonEventOut)
+@router.post("", response_model=schemas.PersonEventCreate)
 def create_person_event(event: schemas.PersonEventCreate, db: Session = Depends(get_db)):
     db_event = models.PersonEvent(**event.dict(exclude_unset=True))
     db.add(db_event)
@@ -26,7 +26,7 @@ def create_person_event(event: schemas.PersonEventCreate, db: Session = Depends(
     return db_event
 
 
-@router.get("", response_model=List[schemas.PersonEventOut])
+@router.get("", response_model=List[schemas.PersonEventCreate])
 def list_person_events(
     camera_id: Optional[str] = None,
     organization_id: Optional[str] = None,

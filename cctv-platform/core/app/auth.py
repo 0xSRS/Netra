@@ -7,8 +7,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from database import get_db
-import models
+from app.database import get_db
+import app.models as models
 
 # In a real deployment this must come from an environment variable, not be
 # hardcoded — fine for a hackathon demo, change before anything goes further.
