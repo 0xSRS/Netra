@@ -1,31 +1,59 @@
 import base64
+from typing import List
 import cv2
 import numpy as np
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from workers.worker_pool import submit_frame, BatchTracker #type:ignore
 
-app = FastAPI()
+from workers.worker_pool import BatchTracker, submit_frame
 
-class Frame(BaseModel):
+app = FastAPI(title="Vehicle AI Processing Service")
+
+
+class FrameItem(BaseModel):
     camera_id: str
     organization_id: str
-    pts_ms: int
+    pts_ms: float
     width: int
     height: int
     format: str
-    frame: str  # base64-encoded raw YUV420p bytes
+    frame: str  # Base64-encoded JPEG bytes
 
-class Batch(BaseModel):
-    frames: list[Frame]
 
-@app.post("/vehicle/process-batch")
-async def process_batch(batch: Batch):
-    tracker = BatchTracker(total=len(batch.frames))
-    for f in batch.frames:
-        raw = base64.b64decode(f.frame)
-        yuv = np.frombuffer(raw, np.uint8).reshape((f.height * 3 // 2, f.width))
-        img = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
-        submit_frame(img, f.camera_id, f.organization_id, f.pts_ms, tracker)
+class BatchRequest(BaseModel):
+    frames: List[FrameItem]
+
+
+@app.post("/process")
+async def process_batch(payload: BatchRequest):
+    if not payload.frames:
+        return {"status": "Completed"}
+
+    tracker = BatchTracker(total=len(payload.frames))
+
+    for item in payload.frames:
+        try:
+            # Decode Base64 string to raw JPEG buffer
+            raw_bytes = base64.b64decode(item.frame)
+            np_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+            if img is None:
+                raise ValueError("cv2.imdecode returned None")
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to decode frame for camera {item.camera_id}: {str(e)}"
+            )
+
+        submit_frame(
+            img=img,
+            camera_id=item.camera_id,
+            organization_id=item.organization_id,
+            pts_ms=item.pts_ms,
+            tracker=tracker
+        )
+
+    # Await worker pool processing across threads
     await tracker.wait_all_done()
     return {"status": "Completed"}
