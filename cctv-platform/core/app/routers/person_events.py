@@ -5,28 +5,27 @@ from sqlalchemy.orm import Session
 import app.models as models
 import app.schemas as schemas
 from app.database import get_db
-from app.routers.alerts import check_watchlist_and_create_alert
 
 router = APIRouter(prefix="/person-events", tags=["person-events"])
 
+# NOTE: In your real pipeline, cctv-platform/person/ writes person_events and
+# person_alerts DIRECTLY into this same Postgres database via raw SQL
+# (person/events/event_store.py, person/alerts/alert_store.py) and only
+# calls core's POST /alerts to push the match live to the frontend — it does
+# NOT call this endpoint. This is kept around for manual testing / any tool
+# that wants to insert a person_event over HTTP instead of raw SQL.
 
-@router.post("", response_model=schemas.PersonEventCreate)
+
+@router.post("", response_model=schemas.PersonEventResponse, status_code=201)
 def create_person_event(event: schemas.PersonEventCreate, db: Session = Depends(get_db)):
-    db_event = models.PersonEvent(**event.dict(exclude_unset=True))
+    db_event = models.PersonEvent(**event.model_dump(exclude_unset=True))
     db.add(db_event)
     db.commit()
     db.refresh(db_event)
-
-    check_watchlist_and_create_alert(
-        source_type="person",
-        camera_id=event.camera_id,
-        value=event.person_label,
-        organization_id=event.organization_id,
-    )
     return db_event
 
 
-@router.get("", response_model=List[schemas.PersonEventCreate])
+@router.get("", response_model=List[schemas.PersonEventResponse])
 def list_person_events(
     camera_id: Optional[str] = None,
     organization_id: Optional[str] = None,
@@ -37,4 +36,4 @@ def list_person_events(
         query = query.filter(models.PersonEvent.camera_id == camera_id)
     if organization_id:
         query = query.filter(models.PersonEvent.organization_id == organization_id)
-    return query.order_by(models.PersonEvent.timestamp.desc()).limit(500).all()
+    return query.order_by(models.PersonEvent.detected_at.desc()).limit(500).all()
