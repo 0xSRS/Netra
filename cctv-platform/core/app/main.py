@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text 
 
 from app.database import engine, SessionLocal, Base
 import app.models as models
@@ -15,12 +16,17 @@ from app.routers import (
     person_frames,
 )
 
-# Auto-create all tables in Postgres/PostGIS if they do not exist
+# 1. Enable pgvector extension inside the database first
+with engine.connect() as conn:
+    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    conn.commit()
+
+# 2. Auto-create all tables in Postgres/PostGIS/pgvector
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Netra CCTV Core Backend", version="1.0.0")
 
-# Enable CORS (open for dev; tighten before production)
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
