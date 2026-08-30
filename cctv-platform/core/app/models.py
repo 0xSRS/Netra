@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Float, Numeric,
-    Boolean, DateTime, Text, ForeignKey, CheckConstraint
+    DateTime, Text, ForeignKey, CheckConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -16,7 +16,7 @@ class Camera(Base):
     __tablename__ = "cameras"
 
     id = Column(Integer, primary_key=True, index=True)
-    camera_id = Column(String(50), unique=True, index=True)
+    camera_id = Column(String(50), unique=True, index=True, nullable=False)
     organization_id = Column(String(50), index=True)
     organization_name = Column(String, nullable=True)
     name = Column(String(100))
@@ -52,6 +52,7 @@ class Camera(Base):
     last_health_check = Column(DateTime, default=datetime.utcnow)
 
     vehicle_events = relationship("VehicleEvent", back_populates="camera", cascade="all, delete-orphan")
+    person_events = relationship("PersonEvent", back_populates="camera", cascade="all, delete-orphan")
 
 
 # ============================================================
@@ -62,7 +63,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
+    hashed_password = Column(String, nullable=False)
     department = Column(String, nullable=True)
     role = Column(String, default="viewer")   # admin/operator/viewer
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -127,7 +128,7 @@ class MissingVehicle(Base):
 
 
 # ============================================================
-# ALERTS
+# ALERTS (VEHICLE)
 # ============================================================
 class Alert(Base):
     __tablename__ = "alerts"
@@ -161,7 +162,11 @@ class PersonMissing(Base):
     status = Column(Text, default="active")
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-    matched_events = relationship("PersonEvent", back_populates="missing_person", foreign_keys="PersonEvent.matched_missing_id")
+    matched_events = relationship(
+        "PersonEvent", 
+        back_populates="missing_person", 
+        foreign_keys="PersonEvent.matched_missing_id"
+    )
     alerts = relationship("PersonAlert", back_populates="missing_person")
 
 
@@ -178,7 +183,11 @@ class PersonWanted(Base):
     status = Column(Text, default="active")
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
-    matched_events = relationship("PersonEvent", back_populates="wanted_person", foreign_keys="PersonEvent.matched_wanted_id")
+    matched_events = relationship(
+        "PersonEvent", 
+        back_populates="wanted_person", 
+        foreign_keys="PersonEvent.matched_wanted_id"
+    )
     alerts = relationship("PersonAlert", back_populates="wanted_person")
 
 
@@ -186,7 +195,7 @@ class PersonEvent(Base):
     __tablename__ = "person_events"
 
     event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    camera_id = Column(Text, nullable=False, index=True)
+    camera_id = Column(String(50), ForeignKey("cameras.camera_id", ondelete="CASCADE"), nullable=False, index=True)
     organization_id = Column(Text, nullable=False)
     pts_ms = Column(Float, nullable=False)
     detected_at = Column(DateTime(timezone=True), default=datetime.utcnow, index=True)
@@ -197,6 +206,7 @@ class PersonEvent(Base):
     matched_missing_id = Column(UUID(as_uuid=True), ForeignKey("person_missing.person_id"), nullable=True)
     matched_wanted_id = Column(UUID(as_uuid=True), ForeignKey("person_wanted.person_id"), nullable=True)
 
+    camera = relationship("Camera", back_populates="person_events")
     missing_person = relationship("PersonMissing", back_populates="matched_events", foreign_keys=[matched_missing_id])
     wanted_person = relationship("PersonWanted", back_populates="matched_events", foreign_keys=[matched_wanted_id])
     alerts = relationship("PersonAlert", back_populates="event", cascade="all, delete-orphan")
@@ -209,11 +219,16 @@ class PersonAlert(Base):
     )
 
     alert_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    event_id = Column(UUID(as_uuid=True), ForeignKey("person_events.event_id"), nullable=True)
-    missing_id = Column(UUID(as_uuid=True), ForeignKey("person_missing.person_id"), nullable=True)
-    wanted_id = Column(UUID(as_uuid=True), ForeignKey("person_wanted.person_id"), nullable=True)
+    event_id = Column(UUID(as_uuid=True), ForeignKey("person_events.event_id", ondelete="CASCADE"), nullable=True)
+    missing_id = Column(UUID(as_uuid=True), ForeignKey("person_missing.person_id", ondelete="SET NULL"), nullable=True)
+    wanted_id = Column(UUID(as_uuid=True), ForeignKey("person_wanted.person_id", ondelete="SET NULL"), nullable=True)
     category = Column(Text, nullable=False)
-    camera_id = Column(Text, nullable=False)
+    camera_id = Column(String(50), nullable=False)
     similarity_score = Column(Float, nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     status = Column(Text, default="pending", index=True)
+
+    # Relationships mapped to back_populates
+    event = relationship("PersonEvent", back_populates="alerts")
+    missing_person = relationship("PersonMissing", back_populates="alerts")
+    wanted_person = relationship("PersonWanted", back_populates="alerts")
