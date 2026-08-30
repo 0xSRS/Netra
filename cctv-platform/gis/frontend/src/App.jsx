@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import Dashboard from './Dashboard'
 import MapView from './MapView'
 import LiveView from './LiveView'
 import CameraOnboard from './CameraOnboard'
@@ -8,9 +9,8 @@ import { getCurrentUser, logout } from './api'
 
 export default function App() {
   const [user, setUser] = useState(getCurrentUser())
-  const [tab, setTab] = useState('map')
+  const [tab, setTab] = useState('dashboard')
   const [refreshKey, setRefreshKey] = useState(0)
-  const [trackedRoute, setTrackedRoute] = useState(null)
 
   if (!user) {
     return <Login onLogin={setUser} />
@@ -19,16 +19,11 @@ export default function App() {
   function handleLogout() {
     logout()
     setUser(null)
-    setTab('map')
+    setTab('dashboard')
   }
 
   function handleRegistryChange() {
     setRefreshKey((k) => k + 1)
-  }
-
-  function handleTrackResult(events) {
-    setTrackedRoute(events)
-    setTab('map')
   }
 
   const isAdmin = user.role === 'admin'
@@ -43,8 +38,9 @@ export default function App() {
           </p>
         </div>
         <nav className="tabs">
+          <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>Dashboard</button>
+          <button className={tab === 'track' ? 'active' : ''} onClick={() => setTab('track')}>Track Vehicle</button>
           <button className={tab === 'map' ? 'active' : ''} onClick={() => setTab('map')}>Map View</button>
-          <button className={tab === 'live' ? 'active' : ''} onClick={() => setTab('live')}>Live View</button>
           {isAdmin && (
             <button className={tab === 'onboard' ? 'active' : ''} onClick={() => setTab('onboard')}>Onboard Cameras</button>
           )}
@@ -55,8 +51,9 @@ export default function App() {
         </nav>
       </header>
 
-      {tab === 'map' && <MapView refreshKey={refreshKey} trackedRoute={trackedRoute} user={user} />}
-      {tab === 'live' && <LiveView onTrackResult={handleTrackResult} />}
+      {tab === 'dashboard' && <Dashboard />}
+      {tab === 'track' && <LiveView />}
+      {tab === 'map' && <MapView refreshKey={refreshKey} user={user} />}
       {tab === 'onboard' && isAdmin && <CameraOnboard onChange={handleRegistryChange} />}
       {tab === 'admin' && isAdmin && <AdminPanel />}
     </div>

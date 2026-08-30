@@ -257,3 +257,45 @@ class FrameBatchIn(BaseModel):
 
 class FrameBatchStatus(BaseModel):
     status: str = "Completed"
+
+# ============================================================
+# VEHICLE TRACKING (map + full history view)
+# ============================================================
+class VehicleTrackPoint(BaseModel):
+    id: int
+    camera_id: str
+    camera_name: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    event_type: str
+    plate_number: Optional[str] = None
+    confidence: float
+    speed_kmph: Optional[float] = None
+    speed_limit_kmph: Optional[float] = None
+    helmet_status: Optional[str] = None
+    snapshot_url: Optional[str] = None
+    created_at: datetime
+
+
+class VehicleTrackResponse(BaseModel):
+    plate_number: str
+    total_detections: int
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    last_camera_id: Optional[str] = None
+    last_latitude: Optional[float] = None
+    last_longitude: Optional[float] = None
+    points: List[VehicleTrackPoint]
+
+
+# ============================================================
+# ALERT PUSH (from person microservice → core → websocket)
+# ============================================================
+class PersonAlertPush(BaseModel):
+    alert_id: str
+    event_id: str
+    person_id: str
+    camera_id: str
+    category: str
+    similarity_score: float
+    crop_image_path: Optional[str] = None

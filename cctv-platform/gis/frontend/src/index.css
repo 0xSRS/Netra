@@ -117,3 +117,50 @@ body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif; back
 .users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .users-table th { text-align: left; color: #0b3d66; border-bottom: 2px solid #dde3ea; padding: 6px 8px; }
 .users-table td { padding: 6px 8px; border-bottom: 1px solid #eef1f4; }
+
+/* Dashboard */
+.dashboard { padding: 24px; overflow-y: auto; flex: 1; }
+.dashboard-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.dashboard-header h2 { color: #0b3d66; margin: 0; }
+.ws-status { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #667; }
+.ws-status .dot { width: 8px; height: 8px; border-radius: 50%; background: #c0392b; }
+.ws-status.live .dot { background: #1a9e5c; box-shadow: 0 0 6px rgba(26,158,92,0.7); }
+.ws-status.live { color: #1a9e5c; }
+
+.dashboard-cards { display: flex; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+.dash-card {
+  background: white; border: 1px solid #dde3ea; border-radius: 10px;
+  padding: 16px 22px; min-width: 140px; display: flex; flex-direction: column;
+}
+.dash-card-value { font-size: 28px; font-weight: 700; color: #0b3d66; }
+.dash-card-label { font-size: 12px; color: #667; text-transform: uppercase; margin-top: 4px; }
+.dash-card.highlight { border-color: #c0392b; }
+.dash-card.highlight .dash-card-value { color: #c0392b; }
+
+.dashboard-feed { background: white; border: 1px solid #dde3ea; border-radius: 8px; padding: 18px; max-width: 720px; }
+.dashboard-feed h3 { margin-top: 0; color: #0b3d66; }
+.alert-item.severity-high { border-left-color: #c0392b; }
+.alert-item.severity-medium { border-left-color: #e0a300; background: #fff8e8; }
+.alert-item.severity-low { border-left-color: #1a9e5c; background: #eafaf1; }
+
+/* Track a vehicle page */
+.track-page { display: flex; gap: 20px; padding: 24px; flex: 1; overflow: hidden; }
+.track-panel { width: 420px; overflow-y: auto; background: white; border-radius: 8px; border: 1px solid #dde3ea; padding: 18px; }
+.track-map { flex: 1; border-radius: 8px; overflow: hidden; border: 1px solid #dde3ea; }
+.track-summary { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; font-size: 13px; }
+.track-summary .label { display: inline-block; width: 90px; color: #667; }
+.track-table-wrap { overflow-x: auto; }
+.track-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.track-table th { text-align: left; color: #0b3d66; border-bottom: 2px solid #dde3ea; padding: 6px 8px; white-space: nowrap; }
+.track-table td { padding: 6px 8px; border-bottom: 1px solid #eef1f4; white-space: nowrap; }
+
+.pulse-dot {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #e21c1c; border: 3px solid white;
+  animation: pulse-red 1.6s infinite;
+}
+@keyframes pulse-red {
+  0%   { box-shadow: 0 0 0 0 rgba(226,28,28,0.7); }
+  70%  { box-shadow: 0 0 0 12px rgba(226,28,28,0); }
+  100% { box-shadow: 0 0 0 0 rgba(226,28,28,0); }
+}

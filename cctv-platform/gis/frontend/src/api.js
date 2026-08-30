@@ -15,10 +15,6 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-// Decodes the JWT's payload (the middle section) so the frontend knows the
-// logged-in user's role/department immediately after login, with no extra
-// API call. This does NOT verify the signature — the backend still checks
-// that on every request — it's purely for adapting the UI.
 export function decodeToken(token) {
   try {
     const payload = token.split(".")[1];
@@ -54,8 +50,6 @@ export function logout() {
   clearToken();
 }
 
-// Every authenticated call goes through this — attaches the token, and
-// treats a 401 (expired/invalid token) as "you're logged out."
 async function authFetch(path, options = {}) {
   const token = getToken();
   const headers = { ...(options.headers || {}) };
@@ -151,10 +145,10 @@ export async function createCamera(camera) {
   return res.json();
 }
 
-// ---------- Alerts / Live View ----------
+// ---------- Alerts / Dashboard ----------
 
-export async function fetchAlerts() {
-  const res = await authFetch("/alerts");
+export async function fetchAlertsFeed() {
+  const res = await authFetch("/alerts/feed");
   if (!res.ok) throw new Error("Failed to fetch alerts");
   return res.json();
 }
@@ -168,7 +162,7 @@ export function connectAlertsSocket(onMessage) {
 // ---------- Vehicle tracking ----------
 
 export async function trackVehicle(plateNumber) {
-  const res = await authFetch(`/vehicle-events/track/${encodeURIComponent(plateNumber)}`);
+  const res = await authFetch(`/vehicle_events/track/${encodeURIComponent(plateNumber)}`);
   if (!res.ok) throw new Error("Track failed");
   return res.json();
 }
