@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+pgvector
+httpx
+python-multipart
+opencv-python-headless
+numpy
+pydantic
+pydantic-settings
