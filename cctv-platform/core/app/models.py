@@ -23,8 +23,9 @@ class Camera(Base):
     status = Column(String, default="online")  # online/offline/maintenance
 
     # location
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
+        # location
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
     address = Column(String(255), nullable=True)
     location_name = Column(String(255), nullable=True)
 

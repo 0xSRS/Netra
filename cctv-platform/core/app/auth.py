@@ -3,7 +3,7 @@ from typing import Optional
 import jwt   # PyJWT — NOT python-jose, see note in requirements.txt
 from jwt.exceptions import PyJWTError
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -64,3 +64,20 @@ def require_admin(current_user: models.User = Depends(get_current_user)) -> mode
             detail="Admin access required",
         )
     return current_user
+
+
+
+# ---------- Service-to-service auth (for AI squads, not human users) ----------
+# vehicle_events.py currently hardcodes this same secret inline — this
+# centralizes it so gls-sync (and anything else machine-to-machine) checks
+# against the same shared value.
+import os
+SERVICE_KEY = os.getenv("SERVICE_KEY", "shared-secret-agree-with-teammate")
+
+
+def verify_service_key(x_service_key: Optional[str] = Header(None)) -> None:
+    if x_service_key != SERVICE_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing X-Service-Key",
+        )

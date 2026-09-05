@@ -7,8 +7,8 @@ from pydantic import BaseModel
 # CAMERA SCHEMAS
 # ============================================================
 class LocationIn(BaseModel):
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     address: Optional[str] = None
 
 
@@ -299,3 +299,26 @@ class PersonAlertPush(BaseModel):
     category: str
     similarity_score: float
     crop_image_path: Optional[str] = None
+
+class GLSCameraProperties(BaseModel):
+    codec: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    fps: Optional[int] = None
+    bitrate_kbps: Optional[int] = None
+
+
+class GLSCameraSync(BaseModel):
+    camera_id: str
+    organization_id: str
+    name: str
+    location: Optional[str] = None
+    status: str = "online"
+    camera_properties: Optional[GLSCameraProperties] = None
+    webrtc_url: Optional[str] = None
+    hls_url: Optional[str] = None
+    rtsp_url: Optional[str] = None
+
+
+class GLSSyncBatch(BaseModel):
+    cameras: List[GLSCameraSync]
