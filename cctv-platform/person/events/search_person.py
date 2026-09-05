@@ -9,7 +9,7 @@ from db import get_session
 from schemas import SearchResponseOut, SearchMatchOut
 from events.event_store import _embedding_to_pgvector_literal
 
-from detection_recognition.detect_person import embed_reference_photo
+from matching.embed_reference import embed_reference_photo
 
 logger = logging.getLogger("person_service.search_person")
 

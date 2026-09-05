@@ -10,6 +10,12 @@ from config import settings
 logger = logging.getLogger("person_service.event_store")
 
 
+def _embedding_to_pgvector_literal(embedding: list[float]) -> str:
+    """Convert a plain float list into the string form pgvector expects
+    when bound as a raw-SQL parameter, e.g. "[0.1,0.2,...]"."""
+    return "[" + ",".join(str(x) for x in embedding) + "]"
+
+
 async def store_event(session, detection: dict, matched_missing_id, matched_wanted_id):
     """
     Inserts one row into person_events for a single detected face.
@@ -43,9 +49,7 @@ async def store_event(session, detection: dict, matched_missing_id, matched_want
             logger.exception(f"Failed to write crop for event={event_id}, continuing without it")
             crop_image_path = None
 
-    embedding = detection["embedding"]
-    # pgvector expects a string like "[0.1,0.2,...]" when bound via raw SQL
-    embedding_literal = "[" + ",".join(str(x) for x in embedding) + "]"
+    embedding_literal = _embedding_to_pgvector_literal(detection["embedding"])
 
     await session.execute(
         text("""
