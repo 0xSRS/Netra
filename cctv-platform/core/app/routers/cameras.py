@@ -109,8 +109,13 @@ def list_cameras(
     # Access control: a non-admin user only ever sees their own department's
     # cameras, no matter what "department" filter they pass in — admins see
     # everything and can filter by any department they like.
+    # Scope by organization_id, not the free-text "department" field — the
+    # ingestion squad's real catalogue tags cameras with organization_id
+    # values (ORG-POLICE, ORG-TRANSPORT, ORG-MUNICIPAL); department names
+    # aren't guaranteed to match a user's department string exactly. A
+    # user's "department" column stores an organization_id value.
     if current_user.role != "admin":
-        query = query.filter(models.Camera.department == current_user.department)
+        query = query.filter(models.Camera.organization_id == current_user.department)
     elif department:
         query = query.filter(models.Camera.department == department)
 
@@ -137,7 +142,7 @@ def get_camera(
     cam = db.query(models.Camera).filter(models.Camera.camera_id == camera_id).first()
     if not cam:
         raise HTTPException(status_code=404, detail="Camera not found")
-    if current_user.role != "admin" and cam.department != current_user.department:
+    if current_user.role != "admin" and cam.organization_id != current_user.department:
         raise HTTPException(status_code=403, detail="Not authorized to view this camera")
     return _camera_to_out(cam)
 
@@ -302,3 +307,63 @@ def gap_analysis(
         ],
         "total_cameras": db.query(models.Camera).count(),
     }
+
+
+
+# ---------- GLS sync: accepts ingestion/catalogue/gls_sync.py's real payload ----------
+
+@router.post("/gls-sync", dependencies=[Depends(auth.verify_service_key)])
+def gls_sync(
+    payload: schemas.GLSSyncBatch,
+    db: Session = Depends(get_db),
+):
+    """The ingestion squad's GLSSync class calls this on a repeating timer,
+    full catalogue each time — including offline cameras. Unlike
+    bulk-import-json, this UPSERTS: an existing camera_id gets its status/
+    name/stream URLs updated in place, since a camera going offline needs
+    to actually update the record, not be silently skipped as a
+    'duplicate'. Coordinates aren't provided by this payload (only a
+    free-text "location" string) — stored as address; latitude/longitude
+    stay null until another source provides them."""
+    created, updated = 0, 0
+    for camera in payload.cameras:
+        props = camera.camera_properties or schemas.GLSCameraProperties()
+        existing = db.query(models.Camera).filter(models.Camera.camera_id == camera.camera_id).first()
+
+        if existing:
+            existing.organization_id = camera.organization_id
+            existing.name = camera.name
+            existing.address = camera.location
+            existing.status = camera.status
+            existing.codec = props.codec
+            existing.width = props.width
+            existing.height = props.height
+            existing.rtsp_url = camera.rtsp_url
+            existing.webrtc_url = camera.webrtc_url
+            existing.hls_url = camera.hls_url
+            if not existing.department:
+                existing.department = camera.organization_id
+            updated += 1
+        else:
+            db.add(models.Camera(
+                camera_id=camera.camera_id,
+                organization_id=camera.organization_id,
+                organization_name=None,
+                name=camera.name,
+                status=camera.status,
+                latitude=None,
+                longitude=None,
+                address=camera.location,
+                camera_type="IP",
+                codec=props.codec,
+                width=props.width,
+                height=props.height,
+                rtsp_url=camera.rtsp_url,
+                webrtc_url=camera.webrtc_url,
+                hls_url=camera.hls_url,
+                department=camera.organization_id,
+                district=None,
+            ))
+            created += 1
+    db.commit()
+    return {"created": created, "updated": updated}

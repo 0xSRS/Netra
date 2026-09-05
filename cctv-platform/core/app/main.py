@@ -14,6 +14,7 @@ from app.routers import (
     alerts,
     vehicle_frames,
     person_frames,
+    watchlist,
 )
 
 # 1. Enable pgvector extension inside the database first
@@ -44,6 +45,7 @@ app.include_router(person_events.router)
 app.include_router(alerts.router)
 app.include_router(vehicle_frames.router)
 app.include_router(person_frames.router)
+app.include_router(watchlist.router)
 
 
 @app.on_event("startup")
