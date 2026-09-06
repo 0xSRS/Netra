@@ -5,7 +5,7 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from workers.worker_pool import BatchTracker, submit_frame
+from workers.worker_pool import submit_frame
 
 app = FastAPI(title="Vehicle AI Processing Service")
 
@@ -26,14 +26,18 @@ class BatchRequest(BaseModel):
 
 @app.post("/process")
 async def process_batch(payload: BatchRequest):
+    """
+    Decodes each frame and hands it to the background worker pool, then
+    returns immediately -- does NOT wait for detection/OCR/speed/helmet
+    processing to finish. Ingestion waits for this response before sending
+    its next batch, so this must stay fast regardless of how long the
+    actual CV pipeline takes per frame.
+    """
     if not payload.frames:
-        return {"status": "Completed"}
-
-    tracker = BatchTracker(total=len(payload.frames))
+        return {"status": "accepted"}
 
     for item in payload.frames:
         try:
-            # Decode Base64 string to raw JPEG buffer
             raw_bytes = base64.b64decode(item.frame)
             np_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
             img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
@@ -51,9 +55,6 @@ async def process_batch(payload: BatchRequest):
             camera_id=item.camera_id,
             organization_id=item.organization_id,
             pts_ms=item.pts_ms,
-            tracker=tracker
         )
 
-    # Await worker pool processing across threads
-    await tracker.wait_all_done()
-    return {"status": "Completed"}
+    return {"status": "accepted"}
