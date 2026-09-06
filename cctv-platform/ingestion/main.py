@@ -13,6 +13,7 @@ CatalogClient (poll /api/ingest)
 import asyncio
 import logging
 import signal
+import sys
 import uvicorn
 from app import app
 from dotenv import load_dotenv
@@ -71,9 +72,6 @@ class Pipeline:
             queue_size=self.settings.dispatch_queue_max_size,
         )
 
-        # GLS/Registry is a separate data flow from AI dispatch (metadata
-        # only, no frames) and runs on its own cadence, independent of the
-        # catalogue-refresh interval that drives stream reconciliation.
         self.gls_sync = GLSSync(
             gls_url=self.settings.gls_registry_url,
             timeout_seconds=self.settings.catalogue_timeout_seconds,
@@ -90,28 +88,17 @@ class Pipeline:
         return sampler
 
     async def _on_frame(self, frame: DecodedFrame) -> None:
-        """Called for every raw decoded frame off any camera's RTSP stream."""
-
         sampler = self._get_sampler(frame.camera_id)
-
         if sampler.should_select(frame):
             self.buffer_manager.push(frame)
 
     def _on_discontinuity(self, camera_id: str) -> None:
-        """Called when stream_manager detects a hard scene cut for a camera."""
-
         sampler = self.samplers.get(camera_id)
         if sampler is not None:
             sampler.reset()
 
     async def _on_catalogue_update(self, live_cameras: list[Camera]) -> None:
-        """Called on every catalogue refresh with the current live camera list."""
-
         await self.stream_manager.sync_cameras(live_cameras)
-
-        # Buffers for cameras that dropped out of the catalogue are no
-        # longer fed -- drop them so stats/memory don't accumulate stale
-        # per-camera state indefinitely.
         active_ids = set(self.stream_manager.active_camera_ids())
         for camera_id in self.buffer_manager.active_camera_ids():
             if camera_id not in active_ids:
@@ -119,21 +106,13 @@ class Pipeline:
                 self.samplers.pop(camera_id, None)
 
     async def _dispatch_batches(self) -> None:
-        """Continuously pull batches and hand identical payloads to both
-        Vehicle AI and Face AI (spec requires both to see the same batch).
-        """
-
         async def on_batch(batch: list[DecodedFrame]) -> None:
             encoded = encode_batch(batch)
-
             if not encoded:
                 return
-
             payload = self.payload_builder.build(encoded)
-
             vehicle_ok = await self.dispatcher.submit_vehicle(payload)
             face_ok = await self.dispatcher.submit_face(payload)
-
             if not vehicle_ok:
                 logger.warning("Vehicle AI queue full, batch dropped for vehicle side")
             if not face_ok:
@@ -142,14 +121,6 @@ class Pipeline:
         await self.batcher.run(on_batch)
 
     async def _push_gls_loop(self) -> None:
-        """Push camera metadata to GLS/Registry on its own timer.
-
-        Uses the *full* catalogue (fetch_catalogue), not just the live
-        subset used for stream reconciliation -- GLS needs to know about
-        offline cameras too so it can render them as offline on the map,
-        not just drop them silently.
-        """
-
         try:
             while True:
                 cameras = await self.catalog_client.fetch_catalogue()
@@ -161,9 +132,7 @@ class Pipeline:
 
     async def start(self) -> None:
         self._running = True
-
         await self.dispatcher.start()
-
         self._tasks = [
             asyncio.create_task(
                 self.catalog_client.start_periodic_refresh(self._on_catalogue_update)
@@ -171,22 +140,18 @@ class Pipeline:
             asyncio.create_task(self._dispatch_batches()),
             asyncio.create_task(self._push_gls_loop()),
         ]
-
         logger.info("Pipeline started")
 
     async def stop(self) -> None:
         logger.info("Pipeline shutting down...")
         self._running = False
-
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
-
         await self.stream_manager.stop_all()
         await self.dispatcher.stop()
         await self.gls_sync.close()
         await self.catalog_client.close()
-
         logger.info("Pipeline stopped cleanly")
 
 
@@ -196,12 +161,18 @@ async def main() -> None:
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop_event.set)
+    if sys.platform != "win32":
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop_event.set)
+    else:
+        # Windows fallback: rely on KeyboardInterrupt
+        async def wait_for_stop():
+            try:
+                await stop_event.wait()
+            except asyncio.CancelledError:
+                pass
+        asyncio.create_task(wait_for_stop())
 
-    # The pipeline's CatalogClient polls http://<server_host>:<server_port>/api/ingest,
-    # so the FastAPI app that serves that route has to be running in this same
-    # process -- otherwise every catalogue poll fails and no cameras ever load.
     config = uvicorn.Config(
         app,
         host=settings.server_host,
@@ -212,10 +183,13 @@ async def main() -> None:
     server_task = asyncio.create_task(server.serve())
 
     await pipeline.start()
-    await stop_event.wait()
+
+    try:
+        await stop_event.wait()
+    except KeyboardInterrupt:
+        stop_event.set()
 
     await pipeline.stop()
-
     server.should_exit = True
     await server_task
 

@@ -1,45 +1,60 @@
-import re
+import os
 import cv2
 import easyocr
+from huggingface_hub import hf_hub_download
+from ultralytics import YOLO
 
-# Initialize EasyOCR reader for English
-_reader = easyocr.Reader(['en'], gpu=False)
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Indian License Plate Regex pattern: 2 letters, 1-2 digits, 1-3 letters, 4 digits
-INDIAN_PLATE_PATTERN = re.compile(r"^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$")
+# Download YOLO weights
+_model_path = hf_hub_download(
+    repo_id="Koushim/yolov8-license-plate-detection",
+    filename="best.pt",
+    token=HF_TOKEN
+)
 
-
-def preprocess_crop(crop):
-    """Enhance contrast and enlarge text for better OCR extraction."""
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    resized = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    return clahe.apply(resized)
+_plate_model = YOLO(_model_path)
+_reader = easyocr.Reader(['en'])
 
 
-def read_plate(img, box):
+def detect_plates(img, conf_thresh: float = 0.4, device: str = "cpu"):
+    """Detect license plates in an image and return bounding boxes."""
+    results = _plate_model.predict(
+        source=img,
+        conf=conf_thresh,
+        verbose=False,
+        device=device
+    )
+
+    boxes = []
+    h, w, _ = img.shape
+
+    for r in results:
+        for box in r.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+
+            if x2 > x1 and y2 > y1:
+                boxes.append([x1, y1, x2, y2])
+
+    return boxes
+
+
+def read_plate(img, conf_thresh: float = 0.4, device: str = "cpu"):
     """
-    Extracts and parses text from the bounding box region.
-    Returns: (plate_text, confidence) or (None, 0.0)
+    Detect plates and run OCR on them.
+    Returns: List of recognized plate texts.
     """
-    x1, y1, x2, y2 = box
-    crop = img[y1:y2, x1:x2]
-    if crop.size == 0:
-        return None, 0.0
+    boxes = detect_plates(img, conf_thresh, device)
+    plate_texts = []
 
-    processed = preprocess_crop(crop)
-    results = _reader.readtext(processed)
+    for (x1, y1, x2, y2) in boxes:
+        cropped = img[y1:y2, x1:x2]
+        if cropped.size > 0:
+            results = _reader.readtext(cropped)
+            texts = [res[1] for res in results]
+            if texts:  # <-- must indent the next line
+                plate_texts.append(" ".join(texts).strip())
 
-    best_plate = None
-    best_conf = 0.0
-
-    for _, text, conf in results:
-        # Strip spaces and special characters
-        cleaned = re.sub(r"[^A-Za-z0-9]", "", text).upper()
-
-        if 8 <= len(cleaned) <= 11:
-            if INDIAN_PLATE_PATTERN.match(cleaned) or conf > best_conf:
-                best_plate = cleaned
-                best_conf = float(conf)
-
-    return best_plate, round(best_conf, 3)
+    return plate_texts
