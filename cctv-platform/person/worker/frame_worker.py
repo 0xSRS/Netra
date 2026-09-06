@@ -9,7 +9,7 @@ from alerts.cooldown import CooldownTracker
 from alerts.alert_store import store_alert
 from alerts.send_to_core import send_alert_to_core
 
-from detection_recognition.detect_person import process_frame
+from detection_recognition.extract_embedding import process_frame
 from matching.match_watchlist import match_watchlist
 
 logger = logging.getLogger("person_service.frame_worker")
