@@ -51,6 +51,16 @@ async def store_event(session, detection: dict, matched_missing_id, matched_want
 
     embedding_literal = _embedding_to_pgvector_literal(detection["embedding"])
 
+    def _to_native(value):
+        """Convert numpy scalar types (e.g. numpy.int64 from cv2/YOLO bbox
+        coordinates) into plain Python int/float so json.dumps() can
+        serialize them. Leaves already-native values untouched."""
+        if hasattr(value, "item"):
+            return value.item()
+        return value
+
+    bbox_native = {k: _to_native(v) for k, v in detection["bbox"].items()}
+
     await session.execute(
         text("""
             INSERT INTO person_events (
@@ -69,7 +79,7 @@ async def store_event(session, detection: dict, matched_missing_id, matched_want
             "camera_id": detection["camera_id"],
             "organization_id": detection["organization_id"],
             "pts_ms": detection["pts_ms"],
-            "bbox": json.dumps(detection["bbox"]),
+            "bbox": json.dumps(bbox_native),
             "embedding": embedding_literal,
             "crop_image_path": crop_image_path,
             "matched_missing_id": matched_missing_id,

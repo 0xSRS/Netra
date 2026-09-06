@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text 
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-from app.database import engine, SessionLocal, Base
+from app.database import engine, SessionLocal, Base, get_db
 import app.models as models
 import app.auth as auth_utils
 from app.routers import (
@@ -70,6 +71,31 @@ def bootstrap_default_admin():
     finally:
         db.close()
 
+
+@app.get("/api/ingest")
+def get_ingest_catalogue(db: Session = Depends(get_db)):
+    """Exposes online cameras for the ingestion service's CatalogClient."""
+    db_cameras = db.query(models.Camera).filter(models.Camera.status == "online").all()
+    catalogue = []
+    for cam in db_cameras:
+        catalogue.append({
+            "camera_id": cam.camera_id,
+            "organization_id": cam.organization_id or "ORG-01",
+            "name": cam.name or "Camera Stream",
+            "location": cam.location_name or cam.address or "Gandhinagar Lab",
+            "codec": cam.codec or "H264",
+            "live": str(cam.status) == "online",
+            "stream_properties": {
+                "width": cam.width or 1920,
+                "height": cam.height or 1080,
+                "fps": 30,
+                "bitrate_kbps": 4000,
+            },
+            "rtsp_url": cam.rtsp_url or "",
+            "webrtc_url": cam.webrtc_url or "",
+            "hls_url": cam.hls_url or "",
+        })
+    return {"cameras": catalogue}
 
 @app.get("/health")
 def health_check():
