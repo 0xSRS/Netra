@@ -1,15 +1,22 @@
+import os
 from huggingface_hub import hf_hub_download
 from ultralytics import YOLO
 
-# Download weights from Hugging Face Hub (avoids Git LFS pointer issues)
+# Load Hugging Face token from environment
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+# Download YOLO weights from Hugging Face Hub
 _model_path = hf_hub_download(
     repo_id="Koushim/yolov8-license-plate-detection",
-    filename="best.pt"
+    filename="best.pt",
+    token=HF_TOKEN
 )
+
+# Initialize YOLO model
 _plate_model = YOLO(_model_path)
 
 
-def detect_plates(img, conf_thresh: float = 0.4):
+def detect_plates(img, conf_thresh: float = 0.4, device: str = "cpu"):
     """
     Runs YOLOv8 plate detection on a BGR image.
     Returns: List of bounding boxes [[x1, y1, x2, y2], ...]
@@ -18,7 +25,7 @@ def detect_plates(img, conf_thresh: float = 0.4):
         source=img,
         conf=conf_thresh,
         verbose=False,
-        device="cpu"
+        device=device
     )
 
     boxes = []
