@@ -10,6 +10,19 @@ import app.models as models
 import app.schemas as schemas
 import app.auth as auth
 from app.database import get_db
+import random
+
+# ---------- Gujarat bounding box (approx) — used only to give GLS-synced
+# cameras a plottable position, since gls-sync's payload has no lat/long
+# field at all (only a free-text "location" string, stored as address). ----------
+GUJARAT_LAT_RANGE = (20.1, 24.7)
+GUJARAT_LNG_RANGE = (68.2, 74.5)
+
+
+def _random_gujarat_coords():
+    lat = round(random.uniform(*GUJARAT_LAT_RANGE), 6)
+    lng = round(random.uniform(*GUJARAT_LNG_RANGE), 6)
+    return lat, lng
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
@@ -343,16 +356,21 @@ def gls_sync(
             existing.hls_url = camera.hls_url
             if not existing.department:
                 existing.department = camera.organization_id
+            # Backfill only if still unset — never overwrite real coordinates
+            # that a CSV/JSON import or manual edit already gave this camera.
+            if existing.latitude is None or existing.longitude is None:
+                existing.latitude, existing.longitude = _random_gujarat_coords()
             updated += 1
         else:
+            lat, lng = _random_gujarat_coords()
             db.add(models.Camera(
                 camera_id=camera.camera_id,
                 organization_id=camera.organization_id,
                 organization_name=None,
                 name=camera.name,
                 status=camera.status,
-                latitude=None,
-                longitude=None,
+                latitude=lat,
+                longitude=lng,
                 address=camera.location,
                 camera_type="IP",
                 codec=props.codec,

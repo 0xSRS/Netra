@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { fetchCameras, fetchGapAnalysis } from './api'
+import { fetchCameras, fetchGapAnalysis, fetchVehicleAlerts, fetchPersonAlerts } from './api'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -21,16 +21,82 @@ function coloredIcon(status) {
   })
 }
 
-export default function MapView({ refreshKey, trackedRoute, user }) {
+// Alert markers get a distinct square badge so they never get mistaken for
+// a plain camera dot, colored by severity.
+const SEVERITY_COLOR = { HIGH: '#c0392b', MEDIUM: '#e0a300', LOW: '#3d6fa8' }
+
+function alertIcon(source, severity) {
+  const color = SEVERITY_COLOR[severity] || '#7a2e8f'
+  const shape = source === 'vehicle' ? '3px' : '50%'  // vehicle = rounded square, person = circle
+  return L.divIcon({
+    className: '',
+    html: `<div style="background:${color};width:16px;height:16px;border-radius:${shape};border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.6)"></div>`,
+    iconSize: [16, 16],
+  })
+}
+
+// Recenters the map imperatively when App/Dashboard hands MapView a
+// specific alert to focus on — MapContainer itself only takes an initial
+// center/zoom, so a plain prop change won't move an already-mounted map.
+function FocusHandler({ focusAlert }) {
+  const map = useMap()
+  useEffect(() => {
+    if (focusAlert && focusAlert.latitude && focusAlert.longitude) {
+      map.setView([focusAlert.latitude, focusAlert.longitude], 15)
+    }
+  }, [focusAlert, map])
+  return null
+}
+
+export default function MapView({ refreshKey, trackedRoute, user, focusAlert }) {
   const [cameras, setCameras] = useState([])
   const [gap, setGap] = useState(null)
   const [filters, setFilters] = useState({ department: '', district: '', status: '', search: '' })
   const [showGap, setShowGap] = useState(false)
+  const [alerts, setAlerts] = useState([])
+  const [showAlerts, setShowAlerts] = useState(true)
+  const [alertFilter, setAlertFilter] = useState('all') // 'all' | 'vehicle' | 'person'
   const isAdmin = user?.role === 'admin'
 
   useEffect(() => {
     fetchCameras(filters).then(setCameras)
   }, [filters, refreshKey])
+
+  useEffect(() => {
+    loadAlerts()
+    const interval = setInterval(loadAlerts, 15000) // keep the alert layer reasonably fresh
+    return () => clearInterval(interval)
+  }, [])
+
+  async function loadAlerts() {
+    try {
+      const [vehicleAlerts, personAlerts] = await Promise.all([
+        fetchVehicleAlerts(),
+        fetchPersonAlerts(),
+      ])
+      const vMapped = vehicleAlerts.map((a) => ({
+        source: 'vehicle',
+        id: a.id,
+        camera_id: a.camera_id,
+        headline: `${a.alert_type} — ${a.plate_number || 'unknown plate'}`,
+        details: a.details,
+        severity: a.severity,
+        timestamp: a.triggered_at,
+      }))
+      const pMapped = personAlerts.map((a) => ({
+        source: 'person',
+        id: a.alert_id,
+        camera_id: a.camera_id,
+        headline: `${a.category} person match (${Number(a.similarity_score || 0).toFixed(2)} similarity)`,
+        details: null,
+        severity: a.category === 'wanted' ? 'HIGH' : 'MEDIUM',
+        timestamp: a.created_at,
+      }))
+      setAlerts([...vMapped, ...pMapped])
+    } catch (err) {
+      // Non-fatal — the map still works without the alert layer.
+    }
+  }
 
   async function loadGap() {
     setGap(await fetchGapAnalysis())
@@ -47,6 +113,21 @@ export default function MapView({ refreshKey, trackedRoute, user }) {
       return cam ? [cam.location.latitude, cam.location.longitude] : null
     })
     .filter(Boolean)
+
+  // Join each alert to its camera's coordinates so it can be plotted; drop
+  // alerts whose camera has no location or was filtered out of the user's view.
+  const visibleAlerts = alerts
+    .filter((a) => alertFilter === 'all' || a.source === alertFilter)
+    .map((a) => {
+      const cam = cameras.find((c) => c.camera_id === a.camera_id)
+      if (!cam || cam.location.latitude == null || cam.location.longitude == null) return null
+      return { ...a, latitude: cam.location.latitude, longitude: cam.location.longitude, camera_name: cam.name }
+    })
+    .filter(Boolean)
+
+  const resolvedFocusAlert = focusAlert
+    ? visibleAlerts.find((a) => a.source === focusAlert.source && String(a.id) === String(focusAlert.id))
+    : null
 
   return (
     <div className="layout">
@@ -73,6 +154,19 @@ export default function MapView({ refreshKey, trackedRoute, user }) {
                  onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
         </section>
 
+        <section>
+          <h3>Alerts on map</h3>
+          <label className="alert-toggle">
+            <input type="checkbox" checked={showAlerts} onChange={(e) => setShowAlerts(e.target.checked)} />
+            Show alerts ({visibleAlerts.length})
+          </label>
+          <select value={alertFilter} onChange={(e) => setAlertFilter(e.target.value)}>
+            <option value="all">Vehicle + Person</option>
+            <option value="vehicle">Vehicle only</option>
+            <option value="person">Person only</option>
+          </select>
+        </section>
+
         {isAdmin && (
           <section>
             <button className="gap-btn" onClick={() => { setShowGap(!showGap); if (!gap) loadGap() }}>
@@ -95,6 +189,8 @@ export default function MapView({ refreshKey, trackedRoute, user }) {
         <MapContainer center={[22.2587, 71.1924]} zoom={7} style={{ height: '100%', width: '100%' }}>
           <TileLayer attribution='&copy; OpenStreetMap contributors'
                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <FocusHandler focusAlert={resolvedFocusAlert} />
+
           {cameras.map((cam) => (
             <Marker key={cam.camera_id} position={[cam.location.latitude, cam.location.longitude]}
                     icon={coloredIcon(cam.status)}>
@@ -113,6 +209,20 @@ export default function MapView({ refreshKey, trackedRoute, user }) {
               </Popup>
             </Marker>
           ))}
+
+          {showAlerts && visibleAlerts.map((a) => (
+            <Marker key={`${a.source}-${a.id}`} position={[a.latitude, a.longitude]}
+                    icon={alertIcon(a.source, a.severity)}>
+              <Popup>
+                <span className={`alert-badge ${a.source}`}>{a.source}</span><br />
+                <strong>{a.headline}</strong><br />
+                {a.camera_name} ({a.camera_id})<br />
+                {a.details && <>{a.details}<br /></>}
+                {new Date(a.timestamp).toLocaleString()}
+              </Popup>
+            </Marker>
+          ))}
+
           {routeLatLngs.length > 1 && (
             <Polyline positions={routeLatLngs} pathOptions={{ color: '#0b3d66', weight: 4 }} />
           )}

@@ -27,7 +27,7 @@ function normalizeIncoming(msg) {
   }
 }
 
-export default function Dashboard() {
+export default function Dashboard({ onFocusAlert }) {
   const [alerts, setAlerts] = useState([])
   const [connected, setConnected] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -52,6 +52,10 @@ export default function Dashboard() {
   const vehicleCount = alerts.filter((a) => a.source === 'vehicle').length
   const personCount = alerts.filter((a) => a.source === 'person').length
   const highSeverityCount = alerts.filter((a) => a.severity === 'HIGH').length
+
+  function handleAlertClick(a) {
+    if (onFocusAlert) onFocusAlert(a) // App.jsx switches to the Map tab and centers on this alert's camera
+  }
 
   return (
     <div className="dashboard">
@@ -88,7 +92,10 @@ export default function Dashboard() {
         {alerts.length === 0 && <p className="hint">No alerts yet — waiting for a watchlist match.</p>}
         <ul className="alerts-list">
           {alerts.map((a) => (
-            <li key={`${a.source}-${a.id}`} className={`alert-item severity-${(a.severity || '').toLowerCase()}`}>
+            <li key={`${a.source}-${a.id}`}
+                className={`alert-item severity-${(a.severity || '').toLowerCase()} clickable`}
+                onClick={() => handleAlertClick(a)}
+                title="Click to view on map">
               <span className={`alert-badge ${a.source}`}>{a.source}</span>
               <strong>{a.headline}</strong> at <strong>{a.camera_id}</strong>
               {a.details && <div className="alert-reason">{a.details}</div>}
