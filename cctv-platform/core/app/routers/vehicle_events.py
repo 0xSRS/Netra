@@ -8,7 +8,7 @@ from app.routers.alerts import broadcast_vehicle_alert
 
 router = APIRouter(prefix="/vehicle_events", tags=["Vehicle Events"])
 
-SERVICE_KEY = "shared-secret-agree-with-teammate"
+from app.auth import SERVICE_KEY
 
 
 # ---------------- Receive Events (ingestion) ----------------

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 # ============================================================
 # CAMERA SCHEMAS
@@ -57,11 +57,30 @@ class CamerasBulkImport(BaseModel):
 # ============================================================
 # AUTH + WATCHLIST
 # ============================================================
+# Real organization_id values from the ingestion catalogue (see
+# ingestion/departments/*.json). A non-admin's `department` is compared
+# directly against Camera.organization_id in cameras.py's access control.
+VALID_ORGANIZATIONS = [
+    {"id": "ORG-POLICE", "label": "Police Department"},
+    {"id": "ORG-TRANSPORT", "label": "Transport Department"},
+    {"id": "ORG-MUNICIPAL", "label": "Municipal Corporation"},
+]
+_VALID_ORG_IDS = {org["id"] for org in VALID_ORGANIZATIONS}
+
+
 class UserCreate(BaseModel):
     username: str
     password: str
     department: Optional[str] = None
     role: str = "viewer"
+
+    @model_validator(mode="after")
+    def validate_department_for_non_admin(self):
+        if self.role != "admin" and self.department not in _VALID_ORG_IDS:
+            raise ValueError(
+                f"department must be one of {sorted(_VALID_ORG_IDS)} for non-admin users"
+            )
+        return self
 
 
 class UserOut(BaseModel):

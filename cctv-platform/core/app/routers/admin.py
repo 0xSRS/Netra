@@ -70,3 +70,7 @@ def delete_user(
     db.delete(user)
     db.commit()
     return {"deleted": username}
+
+@router.get("/organizations")
+def list_organizations(current_user: models.User = Depends(auth.require_admin)):
+    return schemas.VALID_ORGANIZATIONS

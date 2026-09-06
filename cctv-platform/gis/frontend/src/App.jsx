@@ -11,6 +11,7 @@ export default function App() {
   const [user, setUser] = useState(getCurrentUser())
   const [tab, setTab] = useState('dashboard')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [focusAlert, setFocusAlert] = useState(null)
 
   if (!user) {
     return <Login onLogin={setUser} />
@@ -24,6 +25,11 @@ export default function App() {
 
   function handleRegistryChange() {
     setRefreshKey((k) => k + 1)
+  }
+
+  function handleFocusAlert(alert) {
+    setFocusAlert(alert)
+    setTab('map')
   }
 
   const isAdmin = user.role === 'admin'
@@ -51,9 +57,9 @@ export default function App() {
         </nav>
       </header>
 
-      {tab === 'dashboard' && <Dashboard />}
+      {tab === 'dashboard' && <Dashboard onFocusAlert={handleFocusAlert} />}
       {tab === 'track' && <LiveView />}
-      {tab === 'map' && <MapView refreshKey={refreshKey} user={user} />}
+      {tab === 'map' && <MapView refreshKey={refreshKey} user={user} focusAlert={focusAlert} />}
       {tab === 'onboard' && isAdmin && <CameraOnboard onChange={handleRegistryChange} />}
       {tab === 'admin' && isAdmin && <AdminPanel />}
     </div>

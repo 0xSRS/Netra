@@ -1,4 +1,8 @@
 const API_BASE = "http://localhost:8000";
+// The person service is its own FastAPI app (person/main.py), run
+// separately on port 8001 — it is NOT part of core. See person/readme.md:
+// "uvicorn main:app --reload --port 8001".
+const PERSON_API_BASE = "http://localhost:8001";
 const TOKEN_KEY = "netra_token";
 
 // ---------- Auth ----------
@@ -153,6 +157,18 @@ export async function fetchAlertsFeed() {
   return res.json();
 }
 
+export async function fetchVehicleAlerts() {
+  const res = await authFetch("/alerts/vehicle");
+  if (!res.ok) throw new Error("Failed to fetch vehicle alerts");
+  return res.json();
+}
+
+export async function fetchPersonAlerts() {
+  const res = await authFetch("/alerts/person");
+  if (!res.ok) throw new Error("Failed to fetch person alerts");
+  return res.json();
+}
+
 export function connectAlertsSocket(onMessage) {
   const ws = new WebSocket(`ws://localhost:8000/alerts/ws`);
   ws.onmessage = (event) => onMessage(JSON.parse(event.data));
@@ -165,4 +181,74 @@ export async function trackVehicle(plateNumber) {
   const res = await authFetch(`/vehicle_events/track/${encodeURIComponent(plateNumber)}`);
   if (!res.ok) throw new Error("Track failed");
   return res.json();
+}
+
+// ---------- Vehicle watchlist (wanted / missing) ----------
+// These hit core's existing /watchlist/* router (core/app/routers/watchlist.py)
+// — nothing in the frontend called these before now.
+
+export async function fetchWantedVehicles() {
+  const res = await authFetch("/watchlist/wanted");
+  if (!res.ok) throw new Error("Failed to fetch wanted vehicles");
+  return res.json();
+}
+
+export async function addWantedVehicle(entry) {
+  const res = await authFetch("/watchlist/wanted", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entry),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to add wanted vehicle");
+  }
+  return res.json();
+}
+
+export async function removeWantedVehicle(plateNumber) {
+  const res = await authFetch(`/watchlist/wanted/${encodeURIComponent(plateNumber)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to remove wanted vehicle");
+  return res.json();
+}
+
+export async function fetchMissingVehicles() {
+  const res = await authFetch("/watchlist/missing");
+  if (!res.ok) throw new Error("Failed to fetch missing vehicles");
+  return res.json();
+}
+
+export async function addMissingVehicle(entry) {
+  const res = await authFetch("/watchlist/missing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entry),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to add missing vehicle");
+  }
+  return res.json();
+}
+
+export async function removeMissingVehicle(plateNumber) {
+  const res = await authFetch(`/watchlist/missing/${encodeURIComponent(plateNumber)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to remove missing vehicle");
+  return res.json();
+}
+
+// ---------- Person search (photo upload) ----------
+// This calls the PERSON MICROSERVICE directly (person/events/search_person.py),
+// not core — it lives on its own port and is not proxied through core:8000.
+// No auth token is sent because that service doesn't run core's auth.py at all.
+
+export async function searchPersonByPhoto(file, topK = 10) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${PERSON_API_BASE}/person/search?top_k=${topK}`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Person search failed — check the person service is running on port 8001.");
+  return res.json(); // { matches: [{ event_id, camera_id, detected_at, similarity_score, crop_image_path }] }
 }
