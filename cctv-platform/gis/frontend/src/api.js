@@ -5,6 +5,41 @@ const API_BASE = "http://localhost:8000";
 const PERSON_API_BASE = "http://localhost:8001";
 const TOKEN_KEY = "netra_token";
 
+// ---------- "Random for now" coordinates ----------
+// Real cameras from ingestion only carry a text address, no lat/long yet.
+// Until real GPS/geocoding exists, any camera without coordinates gets a
+// stable, repeatable position within Gujarat's bounding box — stable so
+// the SAME camera always lands in the SAME spot (derived from a hash of
+// its camera_id), not a fresh random jump on every reload.
+const GUJARAT_BOUNDS = { latMin: 20.1, latMax: 24.7, lngMin: 68.1, lngMax: 74.4 };
+
+function fnv1aHash(str, seed) {
+  let hash = seed;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function fallbackCoords(camera_id) {
+  const id = camera_id || "unknown";
+  // Different seeds for lat vs lng so nearby-looking IDs (CAM-001, CAM-002)
+  // spread across the map instead of clustering on top of each other.
+  const latHash = fnv1aHash(id, 0x811c9dc5);
+  const lngHash = fnv1aHash(id + "#lng", 0x01000193);
+  return {
+    latitude: GUJARAT_BOUNDS.latMin + (latHash % 100000) / 100000 * (GUJARAT_BOUNDS.latMax - GUJARAT_BOUNDS.latMin),
+    longitude: GUJARAT_BOUNDS.lngMin + (lngHash % 100000) / 100000 * (GUJARAT_BOUNDS.lngMax - GUJARAT_BOUNDS.lngMin),
+  };
+}
+
+function withFallbackCoords(camera) {
+  if (camera.location?.latitude != null && camera.location?.longitude != null) return camera;
+  const fb = fallbackCoords(camera.camera_id);
+  return { ...camera, location: { ...camera.location, ...fb, isFallback: true } };
+}
+
 // ---------- Auth ----------
 
 export function saveToken(token) {
@@ -101,51 +136,13 @@ export async function fetchCameras(filters = {}) {
   );
   const res = await authFetch(`/cameras?${params}`);
   if (!res.ok) throw new Error("Failed to fetch cameras");
-  return res.json();
+  const cameras = await res.json();
+  return cameras.map(withFallbackCoords);
 }
 
 export async function fetchGapAnalysis() {
   const res = await authFetch("/cameras/reports/gap-analysis");
   if (!res.ok) throw new Error("Failed to fetch gap analysis");
-  return res.json();
-}
-
-export async function uploadCsv(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-  const res = await authFetch("/cameras/bulk-import", { method: "POST", body: formData });
-  if (!res.ok) throw new Error("Import failed");
-  return res.json();
-}
-
-export async function uploadCamerasJson(file) {
-  const text = await file.text();
-  const payload = JSON.parse(text);
-  const res = await authFetch("/cameras/bulk-import-json", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error("Import failed");
-  return res.json();
-}
-
-export async function resetCameras() {
-  const res = await authFetch("/cameras", { method: "DELETE" });
-  if (!res.ok) throw new Error("Reset failed");
-  return res.json();
-}
-
-export async function createCamera(camera) {
-  const res = await authFetch("/cameras", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(camera),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || "Create failed");
-  }
   return res.json();
 }
 
@@ -180,7 +177,19 @@ export function connectAlertsSocket(onMessage) {
 export async function trackVehicle(plateNumber) {
   const res = await authFetch(`/vehicle_events/track/${encodeURIComponent(plateNumber)}`);
   if (!res.ok) throw new Error("Track failed");
-  return res.json();
+  const data = await res.json();
+
+  data.points = (data.points || []).map((p) => {
+    if (p.latitude != null && p.longitude != null) return p;
+    const fb = fallbackCoords(p.camera_id);
+    return { ...p, ...fb, isFallback: true };
+  });
+  if ((data.last_latitude == null || data.last_longitude == null) && data.last_camera_id) {
+    const fb = fallbackCoords(data.last_camera_id);
+    data.last_latitude = fb.latitude;
+    data.last_longitude = fb.longitude;
+  }
+  return data;
 }
 
 // ---------- Vehicle watchlist (wanted / missing) ----------

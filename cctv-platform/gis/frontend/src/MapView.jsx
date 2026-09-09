@@ -194,11 +194,15 @@ export default function MapView({ refreshKey, trackedRoute, user, focusAlert }) 
           {cameras.map((cam) => (
             <Marker key={cam.camera_id} position={[cam.location.latitude, cam.location.longitude]}
                     icon={coloredIcon(cam.status)}>
-              <Popup>
+                            <Popup>
                 <strong>{cam.camera_id}</strong> — {cam.name}<br />
                 {cam.organization_name || cam.organization_id}<br />
                 {cam.location.address && <>{cam.location.address}<br /></>}
+                {cam.location.isFallback && (
+                  <span style={{ color: '#e0a300' }}>⚠ approximate location (no GPS from ingestion yet)<br /></span>
+                )}
                 Status: {cam.status}<br />
+                {cam.properties?.codec && <>Codec: {cam.properties.codec}<br /></>}
                 {cam.properties?.width && cam.properties?.height &&
                   <>Resolution: {cam.properties.width}×{cam.properties.height}<br /></>}
                 {cam.stream?.webrtc && (

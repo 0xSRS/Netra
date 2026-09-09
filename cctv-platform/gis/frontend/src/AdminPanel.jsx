@@ -5,9 +5,18 @@ import {
   fetchMissingVehicles, addMissingVehicle, removeMissingVehicle,
 } from './api'
 
-const DEPARTMENTS = ['Home', 'RTO', 'Food & Civil Supplies', 'Municipal Corporation', 'Traffic Police']
+// These three match ingestion/departments/police.json, transport.json, and
+// municipal.json exactly (organization_id + organization_name) — NOT a
+// guessed list, and NOT from data/ sample files. A user's "department"
+// column stores the organization_id value, since that's what cameras.py
+// and alerts.py actually filter on for access control.
+const ORGANIZATIONS = [
+  { id: 'ORG-POLICE', label: 'Police Department' },
+  { id: 'ORG-TRANSPORT', label: 'Transport Department' },
+  { id: 'ORG-MUNICIPAL', label: 'Municipal Corporation' },
+]
 
-const EMPTY_FORM = { username: '', password: '', department: DEPARTMENTS[0], role: 'viewer' }
+const EMPTY_FORM = { username: '', password: '', department: ORGANIZATIONS[0].id, role: 'viewer' }
 const EMPTY_WANTED = { plate_number: '', fir_number: '', crime_description: '', severity: 'HIGH', issuing_authority: 'Gujarat Police' }
 const EMPTY_MISSING = { plate_number: '', owner_name: '', vehicle_model: '', report_number: '', contact_number: '' }
 
@@ -80,7 +89,7 @@ function UsersTab() {
         </select>
         {form.role !== 'admin' && (
           <select value={form.department} onChange={(e) => updateField('department', e.target.value)}>
-            {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+                        {ORGANIZATIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
         )}
         {error && <p className="form-error">{error}</p>}
@@ -98,7 +107,7 @@ function UsersTab() {
               <tr key={u.username}>
                 <td>{u.username}</td>
                 <td>{u.role}</td>
-                <td>{u.department || '—'}</td>
+                <td>{ORGANIZATIONS.find((o) => o.id === u.department)?.label || u.department || '—'}</td>
                 <td>
                   <button className="reset-btn" style={{ width: 'auto', padding: '4px 10px' }}
                           onClick={() => handleDelete(u.username)}>

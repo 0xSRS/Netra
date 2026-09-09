@@ -164,3 +164,18 @@ body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif; back
   70%  { box-shadow: 0 0 0 12px rgba(226,28,28,0); }
   100% { box-shadow: 0 0 0 0 rgba(226,28,28,0); }
 }
+
+/* Dashboard alert items are clickable (jump to that alert on the map) */
+.alert-item.clickable { cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
+.alert-item.clickable:hover { transform: translateX(2px); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+
+/* MapView's "show alerts" checkbox row */
+.alert-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 8px; cursor: pointer; }
+
+/* Tab-style switch used by AdminPanel (Users/Watchlist) and LiveView (Vehicle/Person) */
+.track-mode-switch { display: flex; gap: 6px; margin-bottom: 16px; }
+.track-mode-switch button {
+  padding: 8px 16px; border: 1px solid #dde3ea; background: white; color: #445;
+  border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.track-mode-switch button.active { background: #0b3d66; color: white; border-color: #0b3d66; }
