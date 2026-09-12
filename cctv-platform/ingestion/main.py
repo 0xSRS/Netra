@@ -75,6 +75,7 @@ class Pipeline:
         self.gls_sync = GLSSync(
             gls_url=self.settings.gls_registry_url,
             timeout_seconds=self.settings.catalogue_timeout_seconds,
+            service_key=self.settings.service_key,
         )
 
         self._tasks: list[asyncio.Task] = []

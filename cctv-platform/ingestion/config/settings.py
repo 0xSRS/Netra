@@ -57,13 +57,14 @@ class Settings(BaseModel):
 
     # --- Dispatch: Vehicle AI / Face AI ---
     vehicle_ai_url: str = _get_str("VEHICLE_AI_URL", "http://localhost:9001/process")
-    face_ai_url: str = _get_str("FACE_AI_URL", "http://localhost:9002/process")
+    face_ai_url: str = _get_str("FACE_AI_URL", "http://localhost:8001/person/batch")
     dispatch_timeout_seconds: float = _get_float("DISPATCH_TIMEOUT_SECONDS", 5.0)
     dispatch_queue_max_size: int = _get_int("DISPATCH_QUEUE_MAX_SIZE", 50)
 
     # --- GLS registry ---
-    gls_registry_url: str = _get_str("GLS_REGISTRY_URL", "http://localhost:9003/registry")
+    gls_registry_url: str = _get_str("GLS_REGISTRY_URL", "http://localhost:8000/cameras/gls-sync")
     gls_push_interval_seconds: float = _get_float("GLS_PUSH_INTERVAL_SECONDS", 30.0)
+    service_key: str = _get_str("SERVICE_KEY", "shared-secret-agree-with-teammate")
 
     # --- Server (for our own mock /api/ingest + health) ---
     server_host: str = _get_str("SERVER_HOST", "0.0.0.0")
@@ -78,3 +79,4 @@ def get_settings() -> Settings:
     """Return the process-wide Settings singleton."""
 
     return Settings()
+

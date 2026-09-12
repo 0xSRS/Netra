@@ -44,24 +44,16 @@ def _camera_to_gls_payload(camera: Camera) -> dict:
 
 
 class GLSSync:
-    """Pushes the current camera list to GLS/Registry on a timer."""
-
-    def __init__(self, gls_url: str, timeout_seconds: float = 5.0):
+    def __init__(self, gls_url: str, timeout_seconds: float = 5.0, service_key: str = ""):
         self.gls_url = gls_url.rstrip("/")
+        self.service_key = service_key
         self._client = httpx.AsyncClient(timeout=timeout_seconds)
 
     async def push(self, cameras: list[Camera]) -> bool:
-        """Push the full camera list to GLS. Returns True on success.
-
-        Failures are logged and swallowed -- GLS being unreachable should
-        never crash or stall the ingestion pipeline, since GLS is a
-        separate downstream consumer, not part of the AI processing path.
-        """
-
         payload = {"cameras": [_camera_to_gls_payload(c) for c in cameras]}
-
+        headers = {"X-Service-Key": self.service_key} if self.service_key else {}
         try:
-            response = await self._client.post(self.gls_url, json=payload)
+            response = await self._client.post(self.gls_url, json=payload, headers=headers)
             response.raise_for_status()
             logger.info("Pushed %d cameras to GLS", len(cameras))
             return True
