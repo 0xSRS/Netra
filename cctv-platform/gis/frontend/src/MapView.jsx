@@ -35,20 +35,46 @@ function alertIcon(source, severity) {
   })
 }
 
+// A camera that matched the current vehicle/person search gets its own
+// unmistakable marker: bigger, gold ring, pulsing halo — so it's obvious at
+// a glance which cameras "lit up" for this search, separate from the plain
+// registry dots and from unrelated alert badges.
+function highlightIcon() {
+  return L.divIcon({
+    className: '',
+    html: `
+      <div style="position:relative;width:28px;height:28px;">
+        <div class="tracked-pulse-ring"></div>
+        <div style="position:absolute;top:6px;left:6px;background:#d4a017;width:16px;height:16px;
+                    border-radius:50%;border:3px solid white;box-shadow:0 0 6px rgba(0,0,0,0.7);"></div>
+      </div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  })
+}
+
 // Recenters the map imperatively when App/Dashboard hands MapView a
-// specific alert to focus on — MapContainer itself only takes an initial
-// center/zoom, so a plain prop change won't move an already-mounted map.
-function FocusHandler({ focusAlert }) {
+// specific alert (or a fresh search) to focus on — MapContainer itself only
+// takes an initial center/zoom, so a plain prop change won't move an
+// already-mounted map.
+function FocusHandler({ focusAlert, focusPoint }) {
   const map = useMap()
   useEffect(() => {
     if (focusAlert && focusAlert.latitude && focusAlert.longitude) {
       map.setView([focusAlert.latitude, focusAlert.longitude], 15)
     }
   }, [focusAlert, map])
+
+  useEffect(() => {
+    if (focusPoint && focusPoint.latitude != null && focusPoint.longitude != null) {
+      map.setView([focusPoint.latitude, focusPoint.longitude], 13)
+    }
+  }, [focusPoint, map])
+
   return null
 }
 
-export default function MapView({ refreshKey, trackedRoute, user, focusAlert }) {
+export default function MapView({ refreshKey, user, focusAlert, trackedEvents, onClearTracked }) {
   const [cameras, setCameras] = useState([])
   const [gap, setGap] = useState(null)
   const [filters, setFilters] = useState({ department: '', district: '', status: '', search: '' })
@@ -105,14 +131,37 @@ export default function MapView({ refreshKey, trackedRoute, user, focusAlert }) 
   const departments = [...new Set(cameras.map((c) => c.department).filter(Boolean))]
   const districts = [...new Set(cameras.map((c) => c.district).filter(Boolean))]
 
+  const events = trackedEvents || []
+
+  // Group tracked events (vehicle sightings / person matches) by the camera
+  // that produced them, so one camera seen 3 times shows one highlighted
+  // marker with all 3 timestamps listed, not 3 overlapping markers.
+  const eventsByCamera = {}
+  for (const ev of events) {
+    if (!ev.camera_id) continue
+    if (!eventsByCamera[ev.camera_id]) eventsByCamera[ev.camera_id] = []
+    eventsByCamera[ev.camera_id].push(ev)
+  }
+  const highlightedCameraIds = new Set(Object.keys(eventsByCamera))
+
   // Draw the tracked vehicle's route by connecting the camera locations it
-  // was seen at, in order — trackedRoute comes from LiveView's vehicle search.
-  const routeLatLngs = (trackedRoute || [])
-    .map((event) => {
-      const cam = cameras.find((c) => c.camera_id === event.camera_id)
-      return cam ? [cam.location.latitude, cam.location.longitude] : null
-    })
-    .filter(Boolean)
+  // was seen at, in chronological order — vehicle events only, person
+  // sightings don't imply a "route" the way a moving vehicle's plate does.
+  const vehicleEvents = events
+    .filter((e) => e.source === 'vehicle' && e.latitude != null && e.longitude != null)
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+  const routeLatLngs = vehicleEvents.map((e) => [e.latitude, e.longitude])
+
+  // Focus the map on the first tracked event as soon as a fresh search
+  // arrives (falls back to camera coords if the event itself has none).
+  const firstEvent = events[0]
+  const firstEventCam = firstEvent ? cameras.find((c) => c.camera_id === firstEvent.camera_id) : null
+  const focusPoint = firstEvent
+    ? {
+        latitude: firstEvent.latitude ?? firstEventCam?.location?.latitude ?? null,
+        longitude: firstEvent.longitude ?? firstEventCam?.location?.longitude ?? null,
+      }
+    : null
 
   // Join each alert to its camera's coordinates so it can be plotted; drop
   // alerts whose camera has no location or was filtered out of the user's view.
@@ -154,6 +203,31 @@ export default function MapView({ refreshKey, trackedRoute, user, focusAlert }) 
                  onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
         </section>
 
+        {events.length > 0 && (
+          <section>
+            <h3>Tracked search</h3>
+            <p className="hint">
+              {highlightedCameraIds.size} camera{highlightedCameraIds.size === 1 ? '' : 's'} lit up
+              {' '}for this search — gold markers below.
+            </p>
+            <ul className="tracked-list">
+              {Object.entries(eventsByCamera).map(([camId, evs]) => (
+                <li key={camId}>
+                  <strong>{camId}</strong>
+                  <ul>
+                    {evs.map((e, i) => (
+                      <li key={i}>{e.label || e.source} — {new Date(e.timestamp).toLocaleString()}</li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+            {onClearTracked && (
+              <button className="gap-btn" onClick={onClearTracked}>Clear tracked search</button>
+            )}
+          </section>
+        )}
+
         <section>
           <h3>Alerts on map</h3>
           <label className="alert-toggle">
@@ -189,30 +263,49 @@ export default function MapView({ refreshKey, trackedRoute, user, focusAlert }) 
         <MapContainer center={[22.2587, 71.1924]} zoom={7} style={{ height: '100%', width: '100%' }}>
           <TileLayer attribution='&copy; OpenStreetMap contributors'
                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <FocusHandler focusAlert={resolvedFocusAlert} />
+          <FocusHandler focusAlert={resolvedFocusAlert} focusPoint={focusPoint} />
 
-          {cameras.map((cam) => (
-            <Marker key={cam.camera_id} position={[cam.location.latitude, cam.location.longitude]}
-                    icon={coloredIcon(cam.status)}>
-                            <Popup>
-                <strong>{cam.camera_id}</strong> — {cam.name}<br />
-                {cam.organization_name || cam.organization_id}<br />
-                {cam.location.address && <>{cam.location.address}<br /></>}
-                {cam.location.isFallback && (
-                  <span style={{ color: '#e0a300' }}>⚠ approximate location (no GPS from ingestion yet)<br /></span>
-                )}
-                Status: {cam.status}<br />
-                {cam.properties?.codec && <>Codec: {cam.properties.codec}<br /></>}
-                {cam.properties?.width && cam.properties?.height &&
-                  <>Resolution: {cam.properties.width}×{cam.properties.height}<br /></>}
-                {cam.stream?.webrtc && (
-                  <a href={cam.stream.webrtc} target="_blank" rel="noreferrer">
-                    Open live view (WebRTC)
-                  </a>
-                )}
-              </Popup>
-            </Marker>
-          ))}
+          {cameras.map((cam) => {
+            const isHighlighted = highlightedCameraIds.has(cam.camera_id)
+            const camEvents = eventsByCamera[cam.camera_id] || []
+            return (
+              <Marker
+                key={cam.camera_id}
+                position={[cam.location.latitude, cam.location.longitude]}
+                icon={isHighlighted ? highlightIcon() : coloredIcon(cam.status)}
+                zIndexOffset={isHighlighted ? 1000 : 0}
+              >
+                <Popup>
+                  <strong>{cam.camera_id}</strong> — {cam.name}<br />
+                  {cam.organization_name || cam.organization_id}<br />
+                  {cam.location.address && <>{cam.location.address}<br /></>}
+                  {cam.location.isFallback && (
+                    <span style={{ color: '#e0a300' }}>⚠ approximate location (no GPS from ingestion yet)<br /></span>
+                  )}
+                  Status: {cam.status}<br />
+                  {cam.properties?.codec && <>Codec: {cam.properties.codec}<br /></>}
+                  {cam.properties?.width && cam.properties?.height &&
+                    <>Resolution: {cam.properties.width}×{cam.properties.height}<br /></>}
+                  {cam.stream?.webrtc && (
+                    <a href={cam.stream.webrtc} target="_blank" rel="noreferrer">
+                      Open live view (WebRTC)
+                    </a>
+                  )}
+                  {isHighlighted && (
+                    <>
+                      <hr />
+                      <span style={{ color: '#a67c00' }}><strong>Matched this search:</strong></span>
+                      <ul style={{ margin: '4px 0 0 -18px' }}>
+                        {camEvents.map((e, i) => (
+                          <li key={i}>{e.label || e.source} — {new Date(e.timestamp).toLocaleString()}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </Popup>
+              </Marker>
+            )
+          })}
 
           {showAlerts && visibleAlerts.map((a) => (
             <Marker key={`${a.source}-${a.id}`} position={[a.latitude, a.longitude]}
@@ -228,7 +321,7 @@ export default function MapView({ refreshKey, trackedRoute, user, focusAlert }) 
           ))}
 
           {routeLatLngs.length > 1 && (
-            <Polyline positions={routeLatLngs} pathOptions={{ color: '#0b3d66', weight: 4 }} />
+            <Polyline positions={routeLatLngs} pathOptions={{ color: '#d4a017', weight: 4 }} />
           )}
         </MapContainer>
       </main>

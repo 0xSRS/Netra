@@ -1,11 +1,12 @@
 from typing import List, Optional, Dict, Any
+
 import json
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, Query, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app import models, schemas
 from app import auth
 
@@ -13,20 +14,35 @@ router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 
 # ---------------- WebSocket Connection Manager ----------------
+# Each connection now remembers WHO is on the other end (role + department/
+# organization_id), so broadcast() can scope live alerts the same way the
+# REST endpoints below already do. Previously every connected browser
+# received every alert regardless of department — a real access-control
+# leak: a Transport-dept user's REST history was correctly filtered, but a
+# live Police-camera alert would still pop up on their dashboard the moment
+# it fired over the socket.
 class ConnectionManager:
     def __init__(self):
-        self.active: List[WebSocket] = []
+        # websocket -> {"role": str, "department": str | None}
+        self.active: Dict[WebSocket, Dict[str, Any]] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, role: str, department: Optional[str]):
         await websocket.accept()
-        self.active.append(websocket)
+        self.active[websocket] = {"role": role, "department": department}
 
     def disconnect(self, websocket: WebSocket):
-        if websocket in self.active:
-            self.active.remove(websocket)
+        self.active.pop(websocket, None)
 
-    async def broadcast(self, message: dict):
-        for connection in list(self.active):
+    async def broadcast(self, message: dict, org_id: Optional[str]):
+        """org_id is the organization_id that owns the camera this alert
+        came from. Admins get everything; everyone else only gets it if it
+        matches their own department. If org_id can't be resolved (camera
+        missing/unknown), we fail safe and only show it to admins."""
+        for connection, info in list(self.active.items()):
+            is_admin = info.get("role") == "admin"
+            matches_dept = org_id is not None and info.get("department") == org_id
+            if not (is_admin or matches_dept):
+                continue
             try:
                 await connection.send_text(json.dumps(message, default=str))
             except Exception:
@@ -36,11 +52,26 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def _camera_org_id(db: Session, camera_id: Optional[str]) -> Optional[str]:
+    if not camera_id:
+        return None
+    cam = db.query(models.Camera).filter(models.Camera.camera_id == camera_id).first()
+    return cam.organization_id if cam else None
+
+
 # ---------------- Helper used by vehicle_events.py ----------------
 async def broadcast_vehicle_alert(alert: models.Alert):
     """Scheduled as a BackgroundTask right after a vehicle Alert row is
     committed in routers/vehicle_events.py, so it fires without slowing
-    down the ingestion response."""
+    down the ingestion response. Runs after the original request's db
+    session may already be closed, so it opens its own short-lived one
+    just to resolve which organization owns the camera."""
+    db = SessionLocal()
+    try:
+        org_id = _camera_org_id(db, alert.camera_id)
+    finally:
+        db.close()
+
     await manager.broadcast({
         "source": "vehicle",
         "id": alert.id,
@@ -52,12 +83,12 @@ async def broadcast_vehicle_alert(alert: models.Alert):
         "details": alert.details,
         "status": alert.status,
         "triggered_at": alert.triggered_at,
-    })
+    }, org_id=org_id)
 
 
 # ---------------- Ingest endpoint used by the person service ----------------
 @router.post("", status_code=201)
-async def receive_person_alert(payload: schemas.PersonAlertPush):
+async def receive_person_alert(payload: schemas.PersonAlertPush, db: Session = Depends(get_db)):
     """
     The person service (person/alerts/send_to_core.py) already writes the
     person_alerts row itself via raw SQL (person/alerts/alert_store.py)
@@ -65,14 +96,39 @@ async def receive_person_alert(payload: schemas.PersonAlertPush):
     alert live to any connected frontend over the websocket. It must NOT
     insert into the DB again, or you'd get duplicate rows.
     """
-    await manager.broadcast({"source": "person", **payload.model_dump()})
+    org_id = _camera_org_id(db, getattr(payload, "camera_id", None))
+    await manager.broadcast({"source": "person", **payload.model_dump()}, org_id=org_id)
     return {"received": True}
 
 
 # ---------------- WebSocket ----------------
+# Browsers can't set an Authorization header on a WebSocket handshake, so
+# the JWT is passed as a query param instead: ws://.../alerts/ws?token=...
+# (see api.js's connectAlertsSocket, which already sends the stored token).
 @router.websocket("/ws")
-async def alerts_ws(websocket: WebSocket):
-    await manager.connect(websocket)
+async def alerts_ws(websocket: WebSocket, token: Optional[str] = Query(None)):
+    db = SessionLocal()
+    try:
+        user = None
+        if token:
+            try:
+                payload = auth.jwt.decode(token, auth.SECRET_KEY, algorithms=[auth.ALGORITHM])
+                username = payload.get("sub")
+                if username:
+                    user = db.query(models.User).filter(models.User.username == username).first()
+            except auth.PyJWTError:
+                user = None
+
+        if user is None:
+            # No valid token — refuse the connection instead of silently
+            # treating them as an unscoped/admin listener.
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        await manager.connect(websocket, role=user.role, department=user.department)
+    finally:
+        db.close()
+
     try:
         while True:
             # We never expect the client to send anything; this just blocks

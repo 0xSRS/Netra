@@ -11,6 +11,12 @@ export default function App() {
   const [tab, setTab] = useState('dashboard')
   const [focusAlert, setFocusAlert] = useState(null)
 
+  // Search results from the Track Vehicle / Search Person screen (LiveView),
+  // handed to MapView so it can highlight the cameras that saw the target
+  // and draw the vehicle's route. Shape: array of
+  // { camera_id, timestamp, label, source: 'vehicle' | 'person' }
+  const [trackedEvents, setTrackedEvents] = useState([])
+
   if (!user) {
     return <Login onLogin={setUser} />
   }
@@ -19,11 +25,26 @@ export default function App() {
     logout()
     setUser(null)
     setTab('dashboard')
+    setFocusAlert(null)
+    setTrackedEvents([])
   }
 
   function handleFocusAlert(alert) {
     setFocusAlert(alert)
     setTab('map')
+  }
+
+  // Called by LiveView once a vehicle track / person search comes back with
+  // results. Switches straight to Map View so the person doesn't have to
+  // manually go find it — the whole point is "search here, see it lit up
+  // on the map right away".
+  function handleTrackResult(events) {
+    setTrackedEvents(events || [])
+    setTab('map')
+  }
+
+  function clearTrackedEvents() {
+    setTrackedEvents([])
   }
 
   const isAdmin = user.role === 'admin'
@@ -49,8 +70,15 @@ export default function App() {
       </header>
 
       {tab === 'dashboard' && <Dashboard onFocusAlert={handleFocusAlert} />}
-      {tab === 'track' && <LiveView />}
-      {tab === 'map' && <MapView user={user} focusAlert={focusAlert} />}
+      {tab === 'track' && <LiveView onTrackResult={handleTrackResult} />}
+      {tab === 'map' && (
+        <MapView
+          user={user}
+          focusAlert={focusAlert}
+          trackedEvents={trackedEvents}
+          onClearTracked={clearTrackedEvents}
+        />
+      )}
       {tab === 'admin' && isAdmin && <AdminPanel />}
     </div>
   )
